@@ -10,13 +10,17 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 # ======================
-# 🔐 ENV (RAILWAY)
+# 🔐 ENV
 # ======================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
+GOOGLE_CLIENT_EMAIL = os.getenv("GOOGLE_CLIENT_EMAIL")
+GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY")
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
@@ -31,28 +35,34 @@ cloudinary.config(
 )
 
 # ======================
-# 📊 GOOGLE SHEET SETUP
+# 📊 GOOGLE SHEET AUTH FIX (JWT SAFE)
 # ======================
 scope = [
-    "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-# file ini WAJIB kamu upload ke Railway
-creds = Credentials.from_service_account_file("credentials.json", scopes=scope)
+private_key = GOOGLE_PRIVATE_KEY.replace("\\n", "\n")
+
+creds = Credentials.from_service_account_info({
+    "type": "service_account",
+    "client_email": GOOGLE_CLIENT_EMAIL,
+    "private_key": private_key,
+    "token_uri": "https://oauth2.googleapis.com/token"
+}, scopes=scope)
+
 client = gspread.authorize(creds)
 
-sheet = client.open("Proyek_NPI").sheet1
+sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Proyek_NPI")
 
-
-def save_to_sheet(date, time, month, caption, folder, url):
+# ======================
+# 📊 SAVE SHEET
+# ======================
+def save_to_sheet(date, time, caption, url):
     sheet.append_row([
         date,
         time,
-        month,
         caption,
-        folder,
         url
     ])
 
@@ -63,76 +73,89 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
 
-        # 🕒 waktu telegram
-        msg_time = message.date
+        msg_time = message.date  # waktu telegram server
 
         date = msg_time.strftime("%Y-%m-%d")
         time = msg_time.strftime("%H:%M:%S")
-        month = msg_time.strftime("%B %Y")
         timestamp = msg_time.strftime("%Y-%m-%d_%H-%M-%S")
 
-        # 📁 folder per hari
+        # ======================
+        # FOLDER PER HARI
+        # ======================
         folder_name = f"Proyek_NPI/{date}"
 
-        # 🏷️ caption logic
-        caption = message.caption
-        if caption and caption.strip():
-            clean_caption = caption.strip().replace(" ", "_")
-            filename = f"{clean_caption}_{timestamp}.jpg"
-        else:
-            caption = "-"
-            filename = f"tanpa_keterangan_{timestamp}.jpg"
+        # ======================
+        # CAPTION LOGIC
+        # ======================
+        caption_raw = message.caption or ""
 
-        # 📥 download file telegram
+        if caption_raw.strip():
+            if "kegiatan" in caption_raw.lower():
+                base_name = f"Kegiatan_{date}_{time}"
+            else:
+                clean = caption_raw.strip().replace(" ", "_")[:30]
+                base_name = f"{clean}_{timestamp}"
+            caption_final = caption_raw
+        else:
+            base_name = f"tanpa_keterangan_{timestamp}"
+            caption_final = "-"
+
+        # ======================
+        # DOWNLOAD FOTO
+        # ======================
         photo = message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
 
-        file_path = f"/tmp/{filename}"
+        file_path = f"/tmp/{base_name}.jpg"
         await file.download_to_drive(file_path)
 
-        # ☁️ upload cloudinary
+        # ======================
+        # UPLOAD CLOUDINARY
+        # ======================
         result = cloudinary.uploader.upload(
             file_path,
             folder=folder_name,
-            public_id=filename.replace(".jpg", ""),
-            resource_type="image"
+            public_id=base_name,
+            overwrite=True
         )
 
         url = result["secure_url"]
 
-        # 📊 save ke google sheet
+        # ======================
+        # SAVE GOOGLE SHEET
+        # ======================
         save_to_sheet(
             date,
             time,
-            month,
-            caption,
-            folder_name,
+            caption_final,
             url
         )
 
-        # 📤 reply ke telegram
+        # ======================
+        # RESPONSE
+        # ======================
         await message.reply_text(
             f"✅ BERHASIL UPLOAD\n\n"
-            f"📁 Folder: {folder_name}\n"
-            f"📄 File: {filename}\n"
+            f"📅 Tanggal: {date}\n"
+            f"⏰ Jam: {time}\n"
+            f"📝 Caption: {caption_final}\n"
+            f"📂 Folder: {folder_name}\n"
             f"🔗 {url}"
         )
 
     except Exception as e:
         await message.reply_text(f"❌ ERROR: {str(e)}")
 
-
 # ======================
-# 🚀 MAIN BOT
+# 🚀 MAIN
 # ======================
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-    print("🤖 Bot berjalan...")
+    print("🤖 Bot jalan...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
