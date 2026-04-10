@@ -17,11 +17,12 @@ from googleapiclient.http import MediaFileUpload
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# ===== ID FOLDER UTAMA (PUNYA KAMU) =====
+# ===== ID FOLDER UTAMA =====
 PARENT_FOLDER_ID = "1T21xh7g-uLrMYUHsi_mqYay-jRsTwCOU"
 
 # ===== SETUP GOOGLE DRIVE =====
 SCOPES = ["https://www.googleapis.com/auth/drive"]
+
 print("=== FILE CREDS DIPAKAI: creds.json ===")
 creds = service_account.Credentials.from_service_account_file(
     "creds.json", scopes=SCOPES
@@ -29,7 +30,7 @@ creds = service_account.Credentials.from_service_account_file(
 
 drive_service = build("drive", "v3", credentials=creds)
 
-# ===== BUAT / CARI FOLDER DALAM "Dokumentasi Proyek" =====
+# ===== BUAT / CARI FOLDER =====
 def get_or_create_folder(folder_name):
     query = f"name='{folder_name}' and '{PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'"
     
@@ -48,7 +49,7 @@ def get_or_create_folder(folder_name):
     folder = drive_service.files().create(body=file_metadata).execute()
     return folder["id"]
 
-# ===== AMBIL KEGIATAN DARI CAPTION =====
+# ===== AMBIL KEGIATAN =====
 def extract_kegiatan(text):
     if not text:
         return None
@@ -70,57 +71,64 @@ def extract_date(text):
 
     return datetime.now().strftime("%Y-%m-%d")
 
-# ===== START COMMAND =====
+# ===== START =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Bot dokumentasi aktif!")
 
 # ===== HANDLE FOTO =====
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
-    caption = message.caption or ""
+    try:
+        message = update.message
+        caption = message.caption or ""
 
-    kegiatan = extract_kegiatan(caption)
-    tanggal = extract_date(caption)
+        kegiatan = extract_kegiatan(caption)
+        tanggal = extract_date(caption)
 
-    # kalau tidak ada kegiatan / isinya 0%
-    if kegiatan and kegiatan != "0%":
-        base_name = kegiatan.replace(" ", "_")
-    else:
-        base_name = datetime.now().strftime("%H-%M-%S")
+        # nama file
+        if kegiatan and kegiatan != "0%":
+            base_name = kegiatan.replace(" ", "_")
+        else:
+            base_name = datetime.now().strftime("%H-%M-%S")
 
-    filename = f"{tanggal}_{base_name}.jpg"
+        filename = f"{tanggal}_{base_name}.jpg"
 
-    # download foto dari telegram
-    photo = message.photo[-1]
-    file = await photo.get_file()
+        # download foto
+        photo = message.photo[-1]
+        file = await photo.get_file()
 
-    os.makedirs("downloads", exist_ok=True)
-    path = f"downloads/{filename}"
+        os.makedirs("downloads", exist_ok=True)
+        path = f"downloads/{filename}"
 
-    await file.download_to_drive(path)
+        await file.download_to_drive(path)
 
-    # upload ke Google Drive
-    folder_id = get_or_create_folder(tanggal)
+        # upload ke Drive
+        folder_id = get_or_create_folder(tanggal)
 
-    file_metadata = {
-        "name": filename,
-        "parents": [folder_id]
-    }
+        file_metadata = {
+            "name": filename,
+            "parents": [folder_id]
+        }
 
-    media = MediaFileUpload(path, mimetype="image/jpeg")
+        media = MediaFileUpload(path, mimetype="image/jpeg")
 
-    drive_service.files().create(
-        body=file_metadata,
-        media_body=media
-    ).execute()
+        drive_service.files().create(
+            body=file_metadata,
+            media_body=media
+        ).execute()
 
-    await message.reply_text(f"📁 Upload:\n{filename}")
+        await message.reply_text(f"📁 Upload:\n{filename}")
 
-# ===== JALANKAN BOT =====
+    except Exception as e:
+        print("ERROR:", e)
+        await message.reply_text("❌ Gagal upload")
+
+# ===== RUN BOT =====
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
 print("Bot running...")
-app.run_polling()
+
+# 🔥 FIX CONFLICT TELEGRAM
+app.run_polling(drop_pending_updates=True)
