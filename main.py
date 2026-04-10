@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import asyncio
 from datetime import datetime
 from telegram import Update
 from telegram.ext import (
@@ -32,30 +33,43 @@ def get_drive_service():
             print("❌ ERROR: Variable GOOGLE_CREDS kosong!")
             return None
         
-        # Membersihkan karakter aneh yang sering muncul saat copy-paste di Windows/Railway
+        # Membersihkan spasi atau karakter newline tak terlihat di awal/akhir
         creds_cleaned = creds_raw.strip()
         
+        # Pastikan string dimulai dengan { dan diakhiri dengan }
+        if not (creds_cleaned.startswith('{') and creds_cleaned.endswith('}')):
+            # Jika ada karakter sampah di luar kurung kurawal, coba ambil bagian tengahnya saja
+            start_index = creds_cleaned.find('{')
+            end_index = creds_cleaned.rfind('}') + 1
+            if start_index != -1 and end_index != 0:
+                creds_cleaned = creds_cleaned[start_index:end_index]
+
         # Parsing string JSON menjadi dictionary
         creds_info = json.loads(creds_cleaned)
         
-        # Memastikan private_key terformat dengan benar (mengganti literal \n dengan newline asli)
+        # Perbaikan krusial untuk JWT Signature
         if 'private_key' in creds_info:
+            # Mengganti string literal "\n" menjadi karakter newline asli
             creds_info['private_key'] = creds_info['private_key'].replace('\\n', '\n')
         
         creds = service_account.Credentials.from_service_account_info(
             creds_info, scopes=SCOPES
         )
         return build("drive", "v3", credentials=creds)
+    except json.JSONDecodeError as je:
+        print(f"❌ ERROR PARSING JSON: {je}")
+        print(f"Data yang terbaca (5 karakter awal): '{creds_raw[:5] if creds_raw else 'N/A'}'")
+        return None
     except Exception as e:
-        print(f"❌ ERROR PARSING JSON: {e}")
+        print(f"❌ ERROR SETUP DRIVE: {e}")
         return None
 
+# Inisialisasi awal
 drive_service = get_drive_service()
-if drive_service:
-    print("✅ Google Drive siap")
 
 # ===== FUNGSI FOLDER =====
 def get_or_create_folder(folder_name):
+    if not drive_service: return PARENT_FOLDER_ID
     try:
         query = f"name='{folder_name}' and '{PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
         results = drive_service.files().list(q=query).execute()
@@ -75,46 +89,38 @@ def get_or_create_folder(folder_name):
         print(f"Error folder: {e}")
         return PARENT_FOLDER_ID
 
-# ===== PARSE CAPTION =====
-def extract_kegiatan(text):
-    if not text: return None
-    match = re.search(r'Kegiatan\s*:\s*(.*)', text, re.IGNORECASE)
-    return match.group(1).strip() if match else None
-
-def extract_date(text):
-    now = datetime.now()
-    return now.strftime("%Y-%m-%d")
-
 # ===== HANDLERS =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Bot Aktif. Kirim foto dengan caption 'Kegiatan: Nama'")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    
-    # Cek koneksi ulang jika sebelumnya gagal
     global drive_service
+    
+    # Coba koneksi ulang jika sebelumnya gagal parse
     if not drive_service:
         drive_service = get_drive_service()
         if not drive_service:
-            await message.reply_text("❌ Sistem Google Drive bermasalah.")
+            await message.reply_text("❌ Kredensial Google Drive tidak valid. Cek Logs Railway.")
             return
 
     try:
         caption = message.caption or ""
-        kegiatan = extract_kegiatan(caption)
-        tanggal = extract_date(caption)
+        match = re.search(r'Kegiatan\s*:\s*(.*)', caption, re.IGNORECASE)
+        kegiatan = match.group(1).strip() if match else "Tanpa_Nama"
         
-        clean_kegiatan = re.sub(r'[^\w\s-]', '', kegiatan or "Tanpa_Nama").strip().replace(" ", "_")
+        tanggal = datetime.now().strftime("%Y-%m-%d")
+        clean_kegiatan = re.sub(r'[^\w\s-]', '', kegiatan).strip().replace(" ", "_")
         filename = f"{tanggal}_{clean_kegiatan}.jpg"
 
-        await message.reply_text("⏳ Mengunggah ke Drive...")
+        status_msg = await message.reply_text("⏳ Memproses...")
         
         photo = message.photo[-1]
         tg_file = await photo.get_file()
 
         os.makedirs("downloads", exist_ok=True)
-        local_path = f"downloads/{filename}"
+        local_path = os.path.join("downloads", filename)
+        
         await tg_file.download_to_drive(local_path)
 
         folder_id = get_or_create_folder(tanggal)
@@ -126,10 +132,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if os.path.exists(local_path):
             os.remove(local_path)
 
-        await message.reply_text(f"✅ Terupload: {filename}")
+        await status_msg.edit_text(f"✅ Terupload ke Drive!\n📁 Folder: {tanggal}\n📄 Nama: {filename}")
 
     except Exception as e:
-        print(f"❌ ERROR: {e}")
+        print(f"❌ ERROR UPLOAD: {e}")
         await message.reply_text(f"❌ Gagal: {str(e)}")
 
 # ===== RUN =====
