@@ -24,7 +24,7 @@ PARENT_FOLDER_ID = "1T21xh7g-uLrMYUHsi_mqYay-jRsTwCOU"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 creds = service_account.Credentials.from_service_account_file(
-    "credentials.json", scopes=SCOPES
+    "creds.json", scopes=SCOPES
 )
 
 drive_service = build("drive", "v3", credentials=creds)
