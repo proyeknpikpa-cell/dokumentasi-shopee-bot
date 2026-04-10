@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "macro-creek-492804-a0",
+  "private_key_id": "363cbd28f93f196970bdf3adb59036dd7eea8e9c",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDHT8oRN9GHiD5S\n7D/4Rh+tjDWz1eO6UApgO617WFpEdpPLL6a8suL+iVt6ILbNrDUXRHjdauLOGuBh\njRa0lnvqQBWKBPPTJ893Zg/8HuN+JClnQs39Mgt19wuVjAum3bkyxPYotWzWQrSn\nqNOgayIsIZ50dD2LZ4tL2sNQ2YVskeah/rljHIgziLkbJnLNteNIllvzm3OId/uQ\ngCcVaKLrvWnGhEDjcxVIUOlslHC2EMJmEmB4POYoN0MszI846N7J6XwKLAN5Dm21\nA9u+nJq28MJNXUFo2QOVhhUFMwDmm0rdPPcjF/rQV1xen9EvBvkCKttkV1GlvzAk\n8TstOGf7AgMBAAECggEAUJ70SCmxfia8uxMoPxeyaaNs95z9vFfzEoEhR+LxxH7I\ngqh4RB0CF97c21ZPS3uskAhY8YtySddyStNky1CRuCwK6mTdcdzJHW1x6tRdxiD/\nhG7v3sq2+xUeoPPgpLNMXf5w6f+VEkgyRh1S2TFsxbglncqFOJX+MQVA+zu5rjPQ\nqIlooOQZfkwITDMc2A5Yi8HPRCeBDHHvLQ+tJ/MJZExnQWGEB89Rmw2F2XFy69Ok\nTyAHD6HhKeplWLsBgwaO5OwiGUO9LzAkwn2EB9t38tkBDpBZm28GtgTdaVMqxoGt\ntmdq3A2JlSEKhapE8NXp6QMg+UXeNpKESYb+sP/aDQKBgQD4iuGgt7s3NMTOD95y\nB79A4x3HOScncvOoZSAnXWiy1yCS1577DX+mB1XFp1vU31BhAZL+j7aV2EihNRfN\npAMVL/12zchYELDoBVMGAn/IDon8zpq5ZRQH2wKnYRaFSWjO8GEwDaBNGfFvmASv\nCYwBu2+8nq1WtKlbyGNDrCqeDQKBgQDNSsDcj9nUuyICZuM7kVsEWumeqSuuGO+D\n9gbb0CjU4OqVAewDoS6h3fF6mw+ckzDruuoArlF0J+YaZJgT32taYzhX+28EVYa+\nRkctqsYK+o2kN34k6uRXvnoRCzyYkZIa0IJmfuSd7nXN4tv7vqK2Hy5ABZbnNB3U\n5uMcFuKkJwKBgC3uBFod+fPuxXvLBPGPqvFDx0n8rtakcJCq93Eu2t1J0hQw0olU\nakV1T41yKw9AoWr7zn1Kc5RnXqyj0h1HdOZicvWUe7SCiR6ndTtEFPcUcL2ONJuU\nKUp2V5w03eONuFedpmgp7HizFaHottzd58ieKbzymdfPFQkIFAf6dfm1AoGBAIn7\nUY+tvDqooJ4+q0JxW1ydAmMaz3oP1oS6izeZPKiAmAsZJJn37xDqzRCcQiz6HaqD\nkh5tC+BnpNhefnz08QHqqIcyPxcJqSwgrly6aKweZa9XgRitLFbxdrgX9l2RkkMl\nnE/pwB2KlnGQpk0Zf+GrKXnsh9XUiKx9l25cz26HAoGANgYNpq8+TS5ua+ryncAA\nddGkd6EzvkKKz2vZbpzC8PurWOzEhg0hFZmnpOTNxGQzX8cAcLhhH1XxaOUagSNU\nS0omwMj/kwApiHBlNA8cQQ/QWrfz/yQ403a4acJPnU9nn3KCu1X7Si1TAXJvR5mf\n9Ip9kpygiqUCrqpCF3hGrh0=\n-----END PRIVATE KEY-----\n",
+  "client_email": "name-telegram-bot@macro-creek-492804-a0.iam.gserviceaccount.com",
+  "client_id": "113207459156377899613",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/name-telegram-bot%40macro-creek-492804-a0.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
