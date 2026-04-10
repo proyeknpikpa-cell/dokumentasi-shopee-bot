@@ -24,8 +24,12 @@ PARENT_FOLDER_ID = "1T21xh7g-uLrMYUHsi_mqYay-jRsTwCOU"
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 print("=== FILE CREDS DIPAKAI: creds.json ===")
-creds = service_account.Credentials.from_service_account_file(
-    "creds.json", scopes=SCOPES
+import json
+
+creds_dict = json.loads(os.getenv("GOOGLE_CREDS"))
+
+creds = service_account.Credentials.from_service_account_info(
+    creds_dict, scopes=SCOPES
 )
 
 drive_service = build("drive", "v3", credentials=creds)
