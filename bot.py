@@ -1,104 +1,98 @@
 import os
-import logging
-import re
-import cloudinary
+from datetime import datetime
 import cloudinary.uploader
-
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
-# ================= CONFIG ENV =================
+# ======================
+# 🔐 ENV VARIABLE (WAJIB DI RAILWAY)
+# ======================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
-CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
-CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
-
-# ================= CHECK TOKEN =================
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan di environment variable!")
 
-# ================= CLOUDINARY CONFIG =================
+# ======================
+# ☁️ CLOUDINARY CONFIG
+# ======================
 cloudinary.config(
-    cloud_name=CLOUDINARY_CLOUD_NAME,
-    api_key=CLOUDINARY_API_KEY,
-    api_secret=CLOUDINARY_API_SECRET
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-# ================= LOGGING =================
-logging.basicConfig(level=logging.INFO)
-
-# ================= PARSE CAPTION =================
-def parse_caption(caption: str):
-    if not caption:
-        return ("tanpa_keterangan", "tanpa_tanggal")
-
-    # coba ambil tanggal YYYY-MM-DD
-    date_match = re.search(r"\d{4}-\d{2}-\d{2}", caption)
-    tanggal = date_match.group(0) if date_match else "tanpa_tanggal"
-
-    # ambil kata pertama sebagai kegiatan
-    words = caption.split()
-    kegiatan = words[0] if len(words) > 0 else "kegiatan"
-
-    # bersihkan nama file
-    kegiatan = re.sub(r"[^a-zA-Z0-9_]", "_", kegiatan)
-
-    return kegiatan, tanggal
-
-# ================= HANDLER FOTO =================
+# ======================
+# 🧠 FUNCTION HANDLE FOTO
+# ======================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
-        caption = message.caption or ""
 
-        photo_file = await message.photo[-1].get_file()
+        # ======================
+        # 🕒 AMBIL WAKTU TELEGRAM
+        # ======================
+        msg_time = message.date  # UTC time dari Telegram
+        date_folder = msg_time.strftime("%Y-%m-%d")
+        timestamp = msg_time.strftime("%Y-%m-%d_%H-%M-%S")
 
-        await message.reply_text("⏳ Sedang proses upload...")
+        # ======================
+        # 🏷️ CAPTION LOGIC
+        # ======================
+        caption = message.caption
 
-        # parse caption
-        kegiatan, tanggal = parse_caption(caption)
+        if caption and caption.strip():
+            # ambil caption + timestamp
+            clean_caption = caption.strip().replace(" ", "_")
+            filename = f"{clean_caption}_{timestamp}.jpg"
+            folder_name = f"Civil_Project/{date_folder}"
+        else:
+            # tidak ada caption
+            filename = f"tanpa_keterangan_{timestamp}.jpg"
+            folder_name = f"Civil_Project/{date_folder}/tanpa_caption"
 
-        public_id = f"{tanggal}_{kegiatan}"
-        folder_name = f"Civil_Project/{tanggal}"
+        # ======================
+        # 📷 AMBIL FILE FOTO TERBAIK
+        # ======================
+        photo = message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        file_path = f"/tmp/{filename}"
+        await file.download_to_drive(file_path)
 
-        # download file dari telegram
-        photo_bytes = await photo_file.download_as_bytearray()
-
-        file_path = f"/tmp/{public_id}.jpg"
-
-        with open(file_path, "wb") as f:
-            f.write(photo_bytes)
-
-        # upload ke cloudinary
-        upload_result = cloudinary.uploader.upload(
+        # ======================
+        # ☁️ UPLOAD KE CLOUDINARY
+        # ======================
+        result = cloudinary.uploader.upload(
             file_path,
             folder=folder_name,
-            public_id=public_id,
+            public_id=filename.replace(".jpg", ""),
             resource_type="image"
         )
 
-        file_url = upload_result.get("secure_url")
-
+        # ======================
+        # 📤 RESPONSE KE USER
+        # ======================
         await message.reply_text(
-            "✅ BERHASIL UPLOAD\n\n"
-            f"📂 Folder: {folder_name}\n"
-            f"📄 File: {public_id}.jpg\n"
-            f"🔗 {file_url}"
+            f"✅ BERHASIL UPLOAD\n\n"
+            f"📁 Folder: {folder_name}\n"
+            f"📄 File: {filename}\n"
+            f"🔗 {result['secure_url']}"
         )
 
     except Exception as e:
-        logging.error(f"Upload error: {e}")
-        await message.reply_text("❌ Gagal upload foto.")
+        await message.reply_text(f"❌ ERROR: {str(e)}")
 
-# ================= MAIN =================
+
+# ======================
+# 🚀 MAIN BOT
+# ======================
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-    print("Bot jalan...")
+    print("🤖 Bot sedang berjalan...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
