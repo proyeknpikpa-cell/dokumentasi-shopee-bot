@@ -10,11 +10,43 @@ from telegram.ext import (
     filters,
 )
 
+# GOOGLE DRIVE
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
 TOKEN = os.getenv("BOT_TOKEN")
 
-# ===== START COMMAND =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Bot dokumentasi aktif!")
+# ===== ID FOLDER UTAMA (PUNYA KAMU) =====
+PARENT_FOLDER_ID = "1T21xh7g-uLrMYUHsi_mqYay-jRsTwCOU"
+
+# ===== SETUP GOOGLE DRIVE =====
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+creds = service_account.Credentials.from_service_account_file(
+    "credentials.json", scopes=SCOPES
+)
+
+drive_service = build("drive", "v3", credentials=creds)
+
+# ===== BUAT / CARI FOLDER DALAM "Dokumentasi Proyek" =====
+def get_or_create_folder(folder_name):
+    query = f"name='{folder_name}' and '{PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'"
+    
+    results = drive_service.files().list(q=query).execute()
+    files = results.get("files", [])
+
+    if files:
+        return files[0]["id"]
+
+    file_metadata = {
+        "name": folder_name,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [PARENT_FOLDER_ID]
+    }
+
+    folder = drive_service.files().create(body=file_metadata).execute()
+    return folder["id"]
 
 # ===== AMBIL KEGIATAN DARI CAPTION =====
 def extract_kegiatan(text):
@@ -38,6 +70,10 @@ def extract_date(text):
 
     return datetime.now().strftime("%Y-%m-%d")
 
+# ===== START COMMAND =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ Bot dokumentasi aktif!")
+
 # ===== HANDLE FOTO =====
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
@@ -46,13 +82,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kegiatan = extract_kegiatan(caption)
     tanggal = extract_date(caption)
 
-    if kegiatan:
-        filename = f"{tanggal}_{kegiatan}.jpg"
+    # kalau tidak ada kegiatan / isinya 0%
+    if kegiatan and kegiatan != "0%":
+        base_name = kegiatan.replace(" ", "_")
     else:
-        filename = f"{tanggal}.jpg"
+        base_name = datetime.now().strftime("%H-%M-%S")
 
-    filename = filename.replace(" ", "_")
+    filename = f"{tanggal}_{base_name}.jpg"
 
+    # download foto dari telegram
     photo = message.photo[-1]
     file = await photo.get_file()
 
@@ -61,9 +99,24 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await file.download_to_drive(path)
 
-    await message.reply_text(f"📁 Foto disimpan sebagai:\n{filename}")
+    # upload ke Google Drive
+    folder_id = get_or_create_folder(tanggal)
 
-# ===== RUN BOT =====
+    file_metadata = {
+        "name": filename,
+        "parents": [folder_id]
+    }
+
+    media = MediaFileUpload(path, mimetype="image/jpeg")
+
+    drive_service.files().create(
+        body=file_metadata,
+        media_body=media
+    ).execute()
+
+    await message.reply_text(f"📁 Upload:\n{filename}")
+
+# ===== JALANKAN BOT =====
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
