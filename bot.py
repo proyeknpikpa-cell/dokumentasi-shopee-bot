@@ -44,11 +44,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # ambil caption + timestamp
             clean_caption = caption.strip().replace(" ", "_")
             filename = f"{clean_caption}_{timestamp}.jpg"
-            folder_name = f"Civil_Project/{date_folder}"
+            folder_name = f"Proyek_NPI/{date_folder}"
         else:
             # tidak ada caption
             filename = f"tanpa_keterangan_{timestamp}.jpg"
-            folder_name = f"Civil_Project/{date_folder}/tanpa_caption"
+            folder_name = f"Proyek_NPI/{date_folder}/tanpa_caption"
 
         # ======================
         # 📷 AMBIL FILE FOTO TERBAIK
