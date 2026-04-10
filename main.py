@@ -25,11 +25,15 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 print("=== FILE CREDS DIPAKAI: creds.json ===")
 import json
+from google.auth.transport.requests import Request
 
 creds_dict = json.loads(os.getenv("GOOGLE_CREDS"))
 
 creds = service_account.Credentials.from_service_account_info(
     creds_dict, scopes=SCOPES
+)
+
+creds.refresh(Request())
 )
 
 drive_service = build("drive", "v3", credentials=creds)
