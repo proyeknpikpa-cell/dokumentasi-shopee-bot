@@ -34,6 +34,8 @@ try:
         raise Exception("GOOGLE_CREDS kosong")
 
     creds_dict = json.loads(creds_json)
+# 🔥 PERBAIKI FORMAT PRIVATE KEY
+    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
     creds = service_account.Credentials.from_service_account_info(
         creds_dict, scopes=SCOPES
