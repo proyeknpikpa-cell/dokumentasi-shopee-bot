@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import cloudinary
 import cloudinary.uploader
 
@@ -75,7 +76,7 @@ def save_to_sheet(date, time, caption, url):
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
-        msg_time = message.date
+        msg_time = message.date.astimezone(ZoneInfo("Asia/Jakarta"))
 
         date = msg_time.strftime("%Y-%m-%d")
         time = msg_time.strftime("%H:%M:%S")
