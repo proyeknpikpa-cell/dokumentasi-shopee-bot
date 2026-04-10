@@ -1,86 +1,104 @@
 import os
+import logging
 import re
 import cloudinary
 import cloudinary.uploader
-from datetime import datetime
-from telegram.ext import Updater, MessageHandler, Filters
 
-# ================= CONFIG =================
-TELEGRAM_TOKEN = "ISI_TOKEN_BOT_KAMU"
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
+# ================= CONFIG ENV =================
+TELEGRAM_TOKEN = os.getenv("8716037244:AAHhdKh6dZFh1iCHzPWKeyMp3ErhhsCzgc0")
+
+CLOUDINARY_CLOUD_NAME = os.getenv("drt9op6uh")
+CLOUDINARY_API_KEY = os.getenv("415159293348757")
+CLOUDINARY_API_SECRET = os.getenv("dh-MAaIMlvZBlQlp1zFjbp6sU84")
+
+# ================= CHECK TOKEN =================
+if not TELEGRAM_TOKEN:
+    raise ValueError("TELEGRAM_TOKEN tidak ditemukan di environment variable!")
+
+# ================= CLOUDINARY CONFIG =================
 cloudinary.config(
-    cloud_name="ISI_CLOUD_NAME",
-    api_key="ISI_API_KEY",
-    api_secret="ISI_API_SECRET"
+    cloud_name=CLOUDINARY_CLOUD_NAME,
+    api_key=CLOUDINARY_API_KEY,
+    api_secret=CLOUDINARY_API_SECRET
 )
-# ==========================================
 
-def parse_caption(caption):
+# ================= LOGGING =================
+logging.basicConfig(level=logging.INFO)
+
+# ================= PARSE CAPTION =================
+def parse_caption(caption: str):
+    if not caption:
+        return ("tanpa_keterangan", "tanpa_tanggal")
+
+    # coba ambil tanggal YYYY-MM-DD
+    date_match = re.search(r"\d{4}-\d{2}-\d{2}", caption)
+    tanggal = date_match.group(0) if date_match else "tanpa_tanggal"
+
+    # ambil kata pertama sebagai kegiatan
+    words = caption.split()
+    kegiatan = words[0] if len(words) > 0 else "kegiatan"
+
+    # bersihkan nama file
+    kegiatan = re.sub(r"[^a-zA-Z0-9_]", "_", kegiatan)
+
+    return kegiatan, tanggal
+
+# ================= HANDLER FOTO =================
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Contoh caption:
-        # Kegiatan: Pengecoran 20% - 10 April 2026
+        message = update.message
+        caption = message.caption or ""
 
-        kegiatan_match = re.search(r'Kegiatan:\s*(.*?)\s*-', caption, re.IGNORECASE)
-        tanggal_match = re.search(r'-\s*(.*)', caption)
+        photo_file = await message.photo[-1].get_file()
 
-        kegiatan = kegiatan_match.group(1).strip() if kegiatan_match else "tanpa_kegiatan"
-        tanggal_text = tanggal_match.group(1).strip() if tanggal_match else ""
+        await message.reply_text("⏳ Sedang proses upload...")
 
-        tanggal = datetime.strptime(tanggal_text, "%d %B %Y")
-        tanggal_format = tanggal.strftime("%Y-%m-%d")
+        # parse caption
+        kegiatan, tanggal = parse_caption(caption)
 
-        # bersihin nama file
-        kegiatan = kegiatan.lower().replace(" ", "_")
+        public_id = f"{tanggal}_{kegiatan}"
+        folder_name = f"Civil_Project/{tanggal}"
 
-        return kegiatan, tanggal_format
+        # download file dari telegram
+        photo_bytes = await photo_file.download_as_bytearray()
 
-    except:
-        return "unknown", datetime.now().strftime("%Y-%m-%d")
+        file_path = f"/tmp/{public_id}.jpg"
 
+        with open(file_path, "wb") as f:
+            f.write(photo_bytes)
 
-def handle_photo(update, context):
-    message = update.message
-    caption = message.caption or ""
+        # upload ke cloudinary
+        upload_result = cloudinary.uploader.upload(
+            file_path,
+            folder=folder_name,
+            public_id=public_id,
+            resource_type="image"
+        )
 
-    kegiatan, tanggal = parse_caption(caption)
+        file_url = upload_result.get("secure_url")
 
-    # Ambil file terbesar
-    photo = message.photo[-1]
-    file = photo.get_file()
+        await message.reply_text(
+            "✅ BERHASIL UPLOAD\n\n"
+            f"📂 Folder: {folder_name}\n"
+            f"📄 File: {public_id}.jpg\n"
+            f"🔗 {file_url}"
+        )
 
-    # Download sementara
-    file_path = "temp.jpg"
-    file.download(file_path)
+    except Exception as e:
+        logging.error(f"Upload error: {e}")
+        await message.reply_text("❌ Gagal upload foto.")
 
-    # Nama file baru
-    filename = f"{tanggal}_{kegiatan}.jpg"
-
-    # Upload ke Cloudinary
-    response = cloudinary.uploader.upload(
-        file_path,
-        public_id=f"{tanggal}/{filename}",
-        folder="dokumentasi_proyek"
-    )
-
-    # Hapus file lokal
-    os.remove(file_path)
-
-    update.message.reply_text(
-        f"✅ Upload berhasil!\n\n"
-        f"📁 Folder: {tanggal}\n"
-        f"📄 File: {filename}"
-    )
-
-
+# ================= MAIN =================
 def main():
-    updater = Updater(TELEGRAM_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    dp.add_handler(MessageHandler(Filters.photo, handle_photo))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-    updater.start_polling()
-    updater.idle()
-
+    print("Bot jalan...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
