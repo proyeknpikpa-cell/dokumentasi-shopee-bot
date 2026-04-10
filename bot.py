@@ -6,8 +6,8 @@ import cloudinary.uploader
 import gspread
 from google.oauth2.service_account import Credentials
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 # ======================
 # 🔐 ENV
@@ -79,72 +79,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         time = msg_time.strftime("%H:%M:%S")
         timestamp = msg_time.strftime("%Y-%m-%d_%H-%M-%S")
 
-async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("📊 Jumlah Foto Hari Ini", callback_data="jumlah_foto")],
-        [InlineKeyboardButton("👨‍💻 Pengembang Bot", callback_data="developer")],
-        [InlineKeyboardButton("💬 Masukan", callback_data="masukan")]
-    ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "📋 Menu Informasi Bot:",
-        reply_markup=reply_markup
-    )
-
-    OWNER_USERNAME = os.getenv("OWNER_USERNAME")
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-
-    # 📊 jumlah foto hari ini
-    if data == "jumlah_foto":
-        try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            records = sheet.get_all_values()
-
-            count = sum(1 for row in records if row and row[0] == today)
-
-            await query.edit_message_text(
-                f"📊 Jumlah foto hari ini:\n👉 {count} foto"
-            )
-
-        except Exception as e:
-            await query.edit_message_text(f"❌ Error: {e}")
-
-    # 👨‍💻 developer
-    elif data == "developer":
-        await query.edit_message_text(
-            f"👨‍💻 Bot dibuat oleh {OWNER_USERNAME}"
-        )
-
-    # 💬 masukan
-    elif data == "masukan":
-        await query.edit_message_text(
-            f"💬 Silakan kirim masukan dengan format:\n\n"
-            f"/saran isi pesan kamu"
-        )
-
-async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    text = " ".join(context.args)
-
-    if not text:
-        await update.message.reply_text("❗ Tulis saran setelah /saran")
-        return
-
-    await update.message.reply_text(
-        f"✅ Saran kamu dikirim ke {OWNER_USERNAME}"
-    )
-
-    # kirim ke grup (tag kamu)
-    await update.message.reply_text(
-        f"📩 Saran dari @{user.username}:\n\n{text}\n\n👉 {OWNER_USERNAME}"
-    )
         # ======================
         # FOLDER PER HARI
         # ======================
@@ -223,8 +157,5 @@ def main():
     print("🤖 Bot jalan...")
     app.run_polling()
 
-    app.add_handler(CommandHandler("info", info_command))
-    app.add_handler(CommandHandler("saran", saran_command))
-    app.add_handler(CallbackQueryHandler(button_handler))
 if __name__ == "__main__":
     main()
