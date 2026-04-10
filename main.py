@@ -22,7 +22,7 @@ PARENT_FOLDER_ID = "1T21xh7g-uLrMYUHsi_mqYay-jRsTwCOU"
 
 # ===== SETUP GOOGLE DRIVE =====
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-
+print("=== FILE CREDS DIPAKAI: creds.json ===")
 creds = service_account.Credentials.from_service_account_file(
     "creds.json", scopes=SCOPES
 )
