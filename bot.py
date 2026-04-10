@@ -8,11 +8,11 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 # ================= CONFIG ENV =================
-TELEGRAM_TOKEN = os.getenv("8716037244:AAHhdKh6dZFh1iCHzPWKeyMp3ErhhsCzgc0")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-CLOUDINARY_CLOUD_NAME = os.getenv("drt9op6uh")
-CLOUDINARY_API_KEY = os.getenv("415159293348757")
-CLOUDINARY_API_SECRET = os.getenv("dh-MAaIMlvZBlQlp1zFjbp6sU84")
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 
 # ================= CHECK TOKEN =================
 if not TELEGRAM_TOKEN:
