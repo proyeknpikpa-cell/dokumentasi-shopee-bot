@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from datetime import datetime
 from telegram import Update
 from telegram.ext import (
@@ -14,31 +15,40 @@ from telegram.ext import (
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from google.auth.transport.requests import Request
 
 TOKEN = os.getenv("BOT_TOKEN")
 
 # ===== ID FOLDER UTAMA =====
 PARENT_FOLDER_ID = "1T21xh7g-uLrMYUHsi_mqYay-jRsTwCOU"
 
-# ===== SETUP GOOGLE DRIVE =====
+# ===== SETUP GOOGLE DRIVE (SAFE MODE) =====
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-print("=== FILE CREDS DIPAKAI: creds.json ===")
-import json
-from google.auth.transport.requests import Request
+creds = None
+drive_service = None
 
-creds_dict = json.loads(os.getenv("GOOGLE_CREDS"))
+try:
+    creds_json = os.getenv("GOOGLE_CREDS")
+    if not creds_json:
+        raise Exception("GOOGLE_CREDS kosong")
 
-creds = service_account.Credentials.from_service_account_info(
-    creds_dict, scopes=SCOPES
-)
+    creds_dict = json.loads(creds_json)
 
-creds.refresh(Request())
-)
+    creds = service_account.Credentials.from_service_account_info(
+        creds_dict, scopes=SCOPES
+    )
 
-drive_service = build("drive", "v3", credentials=creds)
+    creds.refresh(Request())
 
-# ===== BUAT / CARI FOLDER =====
+    drive_service = build("drive", "v3", credentials=creds)
+
+    print("✅ Google Drive siap")
+
+except Exception as e:
+    print("❌ ERROR GOOGLE CREDS:", e)
+
+# ===== FOLDER =====
 def get_or_create_folder(folder_name):
     query = f"name='{folder_name}' and '{PARENT_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'"
     
@@ -57,7 +67,7 @@ def get_or_create_folder(folder_name):
     folder = drive_service.files().create(body=file_metadata).execute()
     return folder["id"]
 
-# ===== AMBIL KEGIATAN =====
+# ===== PARSE =====
 def extract_kegiatan(text):
     if not text:
         return None
@@ -67,7 +77,6 @@ def extract_kegiatan(text):
         return match.group(1).strip()
     return None
 
-# ===== AMBIL TANGGAL =====
 def extract_date(text):
     try:
         match = re.search(r'(\d{1,2}\s+\w+\s+\d{4})', text)
@@ -79,20 +88,24 @@ def extract_date(text):
 
     return datetime.now().strftime("%Y-%m-%d")
 
-# ===== START =====
+# ===== COMMAND =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Bot dokumentasi aktif!")
+    await update.message.reply_text("✅ Bot aktif")
 
 # ===== HANDLE FOTO =====
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+
+    if not drive_service:
+        await message.reply_text("❌ Google Drive belum siap")
+        return
+
     try:
-        message = update.message
         caption = message.caption or ""
 
         kegiatan = extract_kegiatan(caption)
         tanggal = extract_date(caption)
 
-        # nama file
         if kegiatan and kegiatan != "0%":
             base_name = kegiatan.replace(" ", "_")
         else:
@@ -100,7 +113,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         filename = f"{tanggal}_{base_name}.jpg"
 
-        # download foto
+        # download
         photo = message.photo[-1]
         file = await photo.get_file()
 
@@ -109,7 +122,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await file.download_to_drive(path)
 
-        # upload ke Drive
+        # upload
         folder_id = get_or_create_folder(tanggal)
 
         file_metadata = {
@@ -130,7 +143,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print("ERROR:", e)
         await message.reply_text("❌ Gagal upload")
 
-# ===== RUN BOT =====
+# ===== RUN =====
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
@@ -138,5 +151,4 @@ app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
 print("Bot running...")
 
-# 🔥 FIX CONFLICT TELEGRAM
 app.run_polling(drop_pending_updates=True)
