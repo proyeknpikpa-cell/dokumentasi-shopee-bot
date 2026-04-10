@@ -1,6 +1,5 @@
 import os
 import re
-import json
 from datetime import datetime
 from telegram import Update
 from telegram.ext import (
@@ -15,33 +14,22 @@ from telegram.ext import (
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.auth.transport.requests import Request
 
 TOKEN = os.getenv("BOT_TOKEN")
 
 # ===== ID FOLDER UTAMA =====
 PARENT_FOLDER_ID = "1T21xh7g-uLrMYUHsi_mqYay-jRsTwCOU"
 
-# ===== SETUP GOOGLE DRIVE (SAFE MODE) =====
+# ===== SETUP GOOGLE DRIVE =====
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 creds = None
 drive_service = None
 
 try:
-    creds_json = os.getenv("GOOGLE_CREDS")
-    if not creds_json:
-        raise Exception("GOOGLE_CREDS kosong")
-
-    creds_dict = json.loads(creds_json)
-# 🔥 PERBAIKI FORMAT PRIVATE KEY
-    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-
-    creds = service_account.Credentials.from_service_account_info(
-        creds_dict, scopes=SCOPES
+    creds = service_account.Credentials.from_service_account_file(
+        "creds.json", scopes=SCOPES
     )
-
-    creds.refresh(Request())
 
     drive_service = build("drive", "v3", credentials=creds)
 
