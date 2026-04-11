@@ -114,7 +114,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sender = user.full_name
 
         # ======================
-        # 🔥 CAPTION LOGIC BARU (RAPI)
+        # 🔥 CAPTION LOGIC BARU
         # ======================
         import re
 
@@ -127,6 +127,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return text[:80]
 
         if caption_raw.strip():
+            caption_final = caption_raw
 
             kegiatan_match = re.search(r'kegiatan\s*:\s*(.*)', caption_raw, re.IGNORECASE)
             lokasi_match = re.search(r'lokasi\s*:\s*(.*)', caption_raw, re.IGNORECASE)
@@ -134,18 +135,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kegiatan_text = kegiatan_match.group(1).strip() if kegiatan_match else ""
             lokasi_text = lokasi_match.group(1).strip() if lokasi_match else ""
 
-            # 🧹 CAPTION RAPI UNTUK SHEET
-            kegiatan_clean = kegiatan_text if kegiatan_text else "-"
-            lokasi_clean = lokasi_text if lokasi_text else "-"
-
-            caption_final = (
-                f"Kegiatan: {kegiatan_clean}\n"
-                f"Lokasi: {lokasi_clean}"
-            )
-
-            # 🏷️ NAMA FILE
             if kegiatan_text or lokasi_text:
-                nama_file = f"{kegiatan_text}_{lokasi_text}"
+                nama_file = f"kegiatan_{kegiatan_text}_lokasi_{lokasi_text}"
                 clean_name = clean_text(nama_file)
                 base_name = f"{clean_name}_{timestamp}"
             else:
@@ -202,7 +193,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ Upload berhasil\n🔗 {url}"
             )
 
-        else:
+        else:  # full
             await message.reply_text(
                 f"✅ BERHASIL UPLOAD\n\n"
                 f"📅 {date} | ⏰ {time}\n"
