@@ -8,8 +8,7 @@ import cloudinary.uploader
 import gspread
 from google.oauth2.service_account import Credentials
 
-# Pastikan versi python-telegram-bot adalah v20.0 atau lebih tinggi untuk fitur WebApp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     MessageHandler,
@@ -31,9 +30,6 @@ GOOGLE_CLIENT_EMAIL = os.getenv("GOOGLE_CLIENT_EMAIL")
 GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 SHEET_URL = os.getenv("SHEET_URL")
-
-# URL Panduan Web App
-PANDUAN_WEB_URL = "https://proyeknpikpa-cell.github.io/panduan-bot-npi/"
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
@@ -66,21 +62,19 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-try:
-    private_key = GOOGLE_PRIVATE_KEY.replace("\\n", "\n")
-    creds = Credentials.from_service_account_info({
-        "type": "service_account",
-        "client_email": GOOGLE_CLIENT_EMAIL,
-        "private_key": private_key,
-        "token_uri": "https://oauth2.googleapis.com/token"
-    }, scopes=scope)
+private_key = GOOGLE_PRIVATE_KEY.replace("\\n", "\n")
 
-    client = gspread.authorize(creds)
-    sheet_instance = client.open_by_key(GOOGLE_SHEET_ID)
-    sheet_photo = sheet_instance.worksheet("Proyek_NPI")
-    sheet_doc = sheet_instance.worksheet("Dokumen_PDF")
-except Exception as e:
-    print(f"❌ Gagal koneksi Google Sheet: {e}")
+creds = Credentials.from_service_account_info({
+    "type": "service_account",
+    "client_email": GOOGLE_CLIENT_EMAIL,
+    "private_key": private_key,
+    "token_uri": "https://oauth2.googleapis.com/token"
+}, scopes=scope)
+
+client = gspread.authorize(creds)
+sheet_instance = client.open_by_key(GOOGLE_SHEET_ID)
+sheet_photo = sheet_instance.worksheet("Proyek_NPI")
+sheet_doc = sheet_instance.worksheet("Dokumen_PDF")
 
 # ======================
 # 🛠️ HELPER
@@ -145,13 +139,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption_final = "-"
         photo = message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
-        file_path = f"tmp_{timestamp}.jpg"
+        file_path = f"/tmp/{base_name}.jpg"
         await file.download_to_drive(file_path)
         result = cloudinary.uploader.upload(file_path, folder=folder_name, public_id=base_name, overwrite=True)
         url = result["secure_url"]
         save_photo_to_sheet(date, time, month, sender, caption_final, url)
-        if os.path.exists(file_path): os.remove(file_path)
-        
         if RESPONSE_MODE == "simple":
             await message.reply_text("✅ Foto berhasil diupload")
         else:
@@ -179,7 +171,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         safe_name = clean_text(original_name)
         public_id_final = f"{safe_name}_{timestamp}"
         file = await context.bot.get_file(doc.file_id)
-        temp_path = f"tmp_{timestamp}_{original_name}"
+        temp_path = f"/tmp/{timestamp}_{original_name}"
         await file.download_to_drive(temp_path)
         result = cloudinary.uploader.upload(temp_path, folder=folder_name, public_id=public_id_final, resource_type="raw")
         url = result["secure_url"]
@@ -200,26 +192,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 📋 COMMANDS
 # ======================
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user_id = update.effective_user.id
-        keyboard = [
-            # Fitur Baru: Tombol WebApp Panduan
-            [InlineKeyboardButton("📖 Panduan Bot (Interaktif)", web_app=WebAppInfo(url=PANDUAN_WEB_URL))],
-            [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{user_id}")],
-            [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{user_id}")],
-            [InlineKeyboardButton("👨‍💻 Developer", callback_data=f"dev|{user_id}")],
-            [InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{user_id}")]
-        ]
-        await update.message.reply_text("📋 Menu Bot:", reply_markup=InlineKeyboardMarkup(keyboard))
-        await delete_user_command(update, context)
-    except Exception as e:
-        print(f"Error info_command: {e}")
-        # Fallback jika WebAppInfo menyebabkan error karena versi library lama
-        keyboard_basic = [
-            [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{user_id}")],
-            [InlineKeyboardButton("❌ Tutup", callback_data=f"close|{user_id}")]
-        ]
-        await update.message.reply_text("📋 Menu Bot (Mode Terbatas):", reply_markup=InlineKeyboardMarkup(keyboard_basic))
+    user_id = update.effective_user.id
+    keyboard = [
+        [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{user_id}")],
+        [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{user_id}")],
+        [InlineKeyboardButton("👨‍💻 Developer", callback_data=f"dev|{user_id}")],
+        [InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{user_id}")]
+    ]
+    await update.message.reply_text("📋 Menu Bot:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await delete_user_command(update, context)
 
 async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -231,19 +212,35 @@ async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await delete_user_command(update, context)
 
 async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Memberikan akses editor ke email yang ditentukan (Khusus Owner)"""
     user = update.effective_user
     if not is_owner(user):
-        await update.message.reply_text("❌ Akses ditolak.")
+        await update.message.reply_text("❌ Akses ditolak. Hanya owner yang bisa memberi izin.")
+        await delete_user_command(update, context)
         return
+
     if not context.args:
-        await update.message.reply_text("⚠️ Gunakan format: `/akses email@gmail.com`")
+        await update.message.reply_text("⚠️ Gunakan format: `/akses email@gmail.com`", parse_mode="Markdown")
+        await delete_user_command(update, context)
         return
+
     email = context.args[0]
+    # Validasi format email sederhana
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        await update.message.reply_text("❌ Format email tidak valid.")
+        await delete_user_command(update, context)
+        return
+
+    status_msg = await update.message.reply_text(f"⏳ Memproses akses untuk `{email}`...", parse_mode="Markdown")
+    
     try:
+        # Memberikan akses Editor ke Spreadsheet
+        # Note: Dalam API Google Drive/gspread, level Editor disebut 'writer'
         sheet_instance.share(email, perm_type='user', role='writer', notify=True)
-        await update.message.reply_text(f"✅ Berhasil! `{email}` sekarang menjadi Editor.")
+        await status_msg.edit_text(f"✅ Berhasil! `{email}` sekarang telah menjadi **Editor** di Google Sheet.", parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"❌ Gagal: {str(e)}")
+        await status_msg.edit_text(f"❌ Gagal memberikan akses: {str(e)}")
+    
     await delete_user_command(update, context)
 
 # ======================
@@ -253,14 +250,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     raw_data = query.data
     parts = raw_data.split("|")
+    
     action = parts[0]
     owner_id = int(parts[1]) if len(parts) > 1 else None
-    
-    if owner_id and query.from_user.id != owner_id:
-        await query.answer("⚠️ Menu ini hanya untuk pemanggil perintah!", show_alert=True)
+    current_user_id = query.from_user.id
+
+    # Proteksi Tombol
+    if owner_id and current_user_id != owner_id:
+        await query.answer("⚠️ Menu ini hanya untuk pengguna yang memanggilnya!", show_alert=True)
         return
 
+    # Aksi Tutup Menu
     if action == "close":
+        await query.answer("Menu ditutup")
         await query.delete_message()
         return
 
@@ -272,77 +274,105 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📘 WORD", callback_data=f"list_WORD_0|{owner_id}")],
             [InlineKeyboardButton("📗 EXCEL", callback_data=f"list_EXCEL_0|{owner_id}")],
             [InlineKeyboardButton("📙 PPT", callback_data=f"list_PPT_0|{owner_id}")],
-            [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")]
+            [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")],
+            [InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{owner_id}")]
         ]
-        await query.edit_message_text("Pilih jenis dokumen:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("Pilih jenis dokumen yang ingin dicari:", reply_markup=InlineKeyboardMarkup(kb))
 
     elif action.startswith("list_"):
+        # Format action: list_KATEGORI_OFFSET
         _, category, offset = action.split("_")
         offset = int(offset)
-        all_rows = sheet_doc.get_all_values()[1:]
+        
+        all_rows = sheet_doc.get_all_values()[1:] 
         filtered = [r for r in all_rows if len(r) > 5 and r[5] == category]
-        filtered.reverse()
-        current_list = filtered[offset:offset+ITEMS_PER_PAGE]
+        filtered.reverse() 
+
+        total = len(filtered)
+        start = offset
+        end = offset + ITEMS_PER_PAGE
+        current_list = filtered[start:end]
 
         if not current_list:
-            await query.edit_message_text(f"📭 Kosong", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Kembali", callback_data=f"menu_doc|{owner_id}")]]))
+            await query.edit_message_text(f"📭 Belum ada dokumen {category}", 
+                                         reply_markup=InlineKeyboardMarkup([
+                                             [InlineKeyboardButton("🔙 Kembali", callback_data=f"menu_doc|{owner_id}")],
+                                             [InlineKeyboardButton("❌ Tutup", callback_data=f"close|{owner_id}")]
+                                         ]))
             return
 
-        text = f"📂 **DAFTAR {category}**\n\n"
-        for i, row in enumerate(current_list, offset+1):
-            text += f"{i}. **{row[4]}**\n🔗 [Buka]({row[6]})\n\n"
+        text = f"📂 **DAFTAR DOKUMEN {category}**\n"
+        text += f"_(Menampilkan {start+1}-{min(end, total)} dari {total} file)_\n\n"
 
-        btns = []
-        if offset + ITEMS_PER_PAGE < len(filtered):
-            btns.append(InlineKeyboardButton("⬅️ Lama", callback_data=f"list_{category}_{offset+ITEMS_PER_PAGE}|{owner_id}"))
+        for i, row in enumerate(current_list, start=1):
+            name = row[4] 
+            link = row[6] 
+            text += f"{i}. **{name}**\n🔗 [Buka Dokumen]({link})\n\n"
+
+        buttons = []
+        nav_row = []
+        if end < total:
+            nav_row.append(InlineKeyboardButton("⬅️ Sebelumnya", callback_data=f"list_{category}_{end}|{owner_id}"))
         if offset > 0:
-            btns.append(InlineKeyboardButton("➡️ Baru", callback_data=f"list_{category}_{max(0, offset-ITEMS_PER_PAGE)}|{owner_id}"))
+            nav_row.append(InlineKeyboardButton("➡️ Terbaru", callback_data=f"list_{category}_{max(0, offset-ITEMS_PER_PAGE)}|{owner_id}"))
         
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([btns, [InlineKeyboardButton("🔙 Kembali", callback_data=f"menu_doc|{owner_id}")]]), disable_web_page_preview=True)
+        if nav_row: buttons.append(nav_row)
+        buttons.append([InlineKeyboardButton("🔙 Pilih Jenis Lain", callback_data=f"menu_doc|{owner_id}")])
+        buttons.append([InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{owner_id}")])
+
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
 
     elif action == "back_main":
-        user_id = query.from_user.id
-        kb = [
-            [InlineKeyboardButton("📖 Panduan Bot (Interaktif)", web_app=WebAppInfo(url=PANDUAN_WEB_URL))],
-            [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{user_id}")],
-            [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{user_id}")],
-            [InlineKeyboardButton("👨‍💻 Developer", callback_data=f"dev|{user_id}")],
-            [InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{user_id}")]
+        keyboard = [
+            [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{owner_id}")],
+            [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{owner_id}")],
+            [InlineKeyboardButton("👨‍💻 Developer", callback_data=f"dev|{owner_id}")],
+            [InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{owner_id}")]
         ]
-        await query.edit_message_text("📋 Menu Bot:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("📋 Menu Bot:", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif action == "jumlah":
         today = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d-%m-%Y")
         rows = sheet_photo.get_all_values()
         count = sum(1 for r in rows if r and r[0] == today)
-        await query.edit_message_text(f"📊 Hari ini: {count} foto diupload.\n\n🔙 Klik /info untuk menu lain.",
-                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")]]))
+        await query.edit_message_text(f"📊 Hari ini ada {count} foto diupload.\n\n🔙 Klik /info untuk menu lain.",
+                                     reply_markup=InlineKeyboardMarkup([
+                                         [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")],
+                                         [InlineKeyboardButton("❌ Tutup", callback_data=f"close|{owner_id}")]
+                                     ]))
 
     elif action == "dev":
-        await query.edit_message_text(f"👨‍💻 Dev: {OWNER_USERNAME}\n\n🔙 Kembali ke /info.",
-                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")]]))
+        await query.edit_message_text(f"👨‍💻 Developer: {OWNER_USERNAME}\n\n🔙 Klik /info untuk menu lain.",
+                                     reply_markup=InlineKeyboardMarkup([
+                                         [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")],
+                                         [InlineKeyboardButton("❌ Tutup", callback_data=f"close|{owner_id}")]
+                                     ]))
 
 # ======================
 # 💬 SARAN & MODE
 # ======================
 async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
     text = " ".join(context.args)
     if not text:
         await update.message.reply_text("❗ Tulis saran setelah /saran")
         return
-    await update.message.reply_text("✅ Saran terkirim!")
+    sender = f"@{user.username}" if user.username else user.full_name
+    await update.message.reply_text("✅ Saran terkirim ke log!")
     await delete_user_command(update, context)
 
 async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global RESPONSE_MODE
-    if not is_owner(update.effective_user):
+    user = update.message.from_user
+    if not is_owner(user):
         await update.message.reply_text("❌ Akses ditolak.")
         return
     if not context.args:
         await update.message.reply_text("Gunakan: /mode full | simple")
         return
-    RESPONSE_MODE = context.args[0].lower()
-    await update.message.reply_text(f"✅ Mode: {RESPONSE_MODE}")
+    mode = context.args[0].lower()
+    RESPONSE_MODE = mode
+    await update.message.reply_text(f"✅ Respon mode: {mode}")
     await delete_user_command(update, context)
 
 # ======================
