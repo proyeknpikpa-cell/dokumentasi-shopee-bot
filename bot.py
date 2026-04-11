@@ -93,11 +93,11 @@ def clean_text(text):
 def get_file_category(filename):
     """Kategorisasi jenis file berdasarkan ekstensi"""
     fn = filename.lower()
-    if fn.endswith('.pdf'): return 'PDF'
-    if fn.endswith(('.doc', '.docx')): return 'WORD'
-    if fn.endswith(('.xls', '.xlsx')): return 'EXCEL'
-    if fn.endswith(('.ppt', '.pptx')): return 'PPT'
-    return 'LAINNYA'
+    if fn.endswith('.pdf'): return 'PDF', '📕'
+    if fn.endswith(('.doc', '.docx')): return 'WORD', '📘'
+    if fn.endswith(('.xls', '.xlsx')): return 'EXCEL', '📗'
+    if fn.endswith(('.ppt', '.pptx')): return 'PPT', '📙'
+    return 'LAINNYA', '📄'
 
 # ======================
 # 📊 SAVE TO SHEET
@@ -179,7 +179,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sender = f"@{user.username}" if user.username else user.full_name
         
         original_name = doc.file_name or f"file_{timestamp}"
-        category = get_file_category(original_name)
+        category, icon = get_file_category(original_name)
         
         # Cloudinary setup
         folder_name = f"Dokumen_Proyek/{category}/{date}"
@@ -200,11 +200,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url = result["secure_url"]
         save_doc_to_sheet(date, time, month, sender, original_name, category, url)
 
+        # OPSI 1: Minimalist & Clean Response
         await message.reply_text(
-            f"✅ DOKUMEN BERHASIL ({category})\n"
-            f"📁 {original_name}\n"
-            f"👤 {sender}\n"
-            f"🔗 {url}"
+            f"✅ **Berhasil diupload!**\n"
+            f"{icon} `{original_name}` ({category})\n"
+            f"🔗 [Buka Dokumen]({url})",
+            parse_mode="Markdown",
+            disable_web_page_preview=True
         )
 
         if os.path.exists(temp_path):
