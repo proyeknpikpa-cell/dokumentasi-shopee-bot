@@ -247,6 +247,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Pilih jenis dokumen yang ingin dicari:", reply_markup=InlineKeyboardMarkup(kb))
 
     elif action.startswith("list_"):
+        # Format action: list_KATEGORI_OFFSET
         _, category, offset = action.split("_")
         offset = int(offset)
         
@@ -313,6 +314,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                          [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")],
                                          [InlineKeyboardButton("❌ Tutup", callback_data=f"close|{owner_id}")]
                                      ]))
+
+# ======================
+# 💬 SARAN & MODE
+# ======================
+async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    text = " ".join(context.args)
+    if not text:
+        await update.message.reply_text("❗ Tulis saran setelah /saran")
+        return
+    sender = f"@{user.username}" if user.username else user.full_name
+    await update.message.reply_text("✅ Saran terkirim ke log!")
+    await delete_user_command(update, context)
+
+async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global RESPONSE_MODE
+    user = update.message.from_user
+    if not is_owner(user):
+        await update.message.reply_text("❌ Akses ditolak.")
+        return
+    if not context.args:
+        await update.message.reply_text("Gunakan: /mode full | simple")
+        return
+    mode = context.args[0].lower()
+    RESPONSE_MODE = mode
+    await update.message.reply_text(f"✅ Respon mode: {mode}")
+    await delete_user_command(update, context)
 
 # ======================
 # 🚀 MAIN
