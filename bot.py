@@ -30,6 +30,7 @@ GOOGLE_CLIENT_EMAIL = os.getenv("GOOGLE_CLIENT_EMAIL")
 GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 SHEET_URL = os.getenv("SHEET_URL")
+PANDUAN_URL = "https://proyeknpikpa-cell.github.io/panduan-bot-npi/"
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
@@ -196,6 +197,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{user_id}")],
         [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{user_id}")],
+        [InlineKeyboardButton("📖 Panduan Bot", url=PANDUAN_URL)],
         [InlineKeyboardButton("👨‍💻 Developer", callback_data=f"dev|{user_id}")],
         [InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{user_id}")]
     ]
@@ -225,7 +227,6 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     email = context.args[0]
-    # Validasi format email sederhana
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         await update.message.reply_text("❌ Format email tidak valid.")
         await delete_user_command(update, context)
@@ -234,8 +235,6 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text(f"⏳ Memproses akses untuk `{email}`...", parse_mode="Markdown")
     
     try:
-        # Memberikan akses Editor ke Spreadsheet
-        # Note: Dalam API Google Drive/gspread, level Editor disebut 'writer'
         sheet_instance.share(email, perm_type='user', role='writer', notify=True)
         await status_msg.edit_text(f"✅ Berhasil! `{email}` sekarang telah menjadi **Editor** di Google Sheet.", parse_mode="Markdown")
     except Exception as e:
@@ -280,7 +279,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Pilih jenis dokumen yang ingin dicari:", reply_markup=InlineKeyboardMarkup(kb))
 
     elif action.startswith("list_"):
-        # Format action: list_KATEGORI_OFFSET
         _, category, offset = action.split("_")
         offset = int(offset)
         
@@ -326,6 +324,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{owner_id}")],
             [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{owner_id}")],
+            [InlineKeyboardButton("📖 Panduan Bot", url=PANDUAN_URL)],
             [InlineKeyboardButton("👨‍💻 Developer", callback_data=f"dev|{owner_id}")],
             [InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{owner_id}")]
         ]
