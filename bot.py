@@ -227,7 +227,13 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📋 Menu Bot:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"📊 Link Dokumentasi:\n{SHEET_URL}")
+    # Respon Minimalis untuk perintah /sheet
+    await update.message.reply_text(
+        f"📊 **Link Dokumentasi**\n"
+        f"🔗 [Klik untuk Membuka Sheet]({SHEET_URL})",
+        parse_mode="Markdown",
+        disable_web_page_preview=True
+    )
 
 # ======================
 # 🎯 CALLBACK HANDLER (PAGINATION)
