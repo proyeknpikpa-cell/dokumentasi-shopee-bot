@@ -77,6 +77,7 @@ creds = Credentials.from_service_account_info({
 client = gspread.authorize(creds)
 sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Proyek_NPI")
 
+# 🔥 TAMBAHAN SHEET PDF
 sheet_pdf = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Dokumen_PDF")
 
 # ======================
@@ -92,6 +93,7 @@ def save_to_sheet(date, time, month, sender, caption, url):
         url
     ])
 
+# 🔥 TAMBAHAN SAVE PDF
 def save_pdf_to_sheet(date, time, month, sender, filename, url):
     sheet_pdf.append_row([
         date,
@@ -103,19 +105,7 @@ def save_pdf_to_sheet(date, time, month, sender, filename, url):
     ])
 
 # ======================
-# 🔥 FIX CLEAN PUBLIC ID (TAMBAHAN BARU)
-# ======================
-def clean_public_id(text):
-    import re
-    text = text.lower()
-    text = re.sub(r'\.[a-z0-9]+$', '', text)
-    text = re.sub(r'[^a-z0-9]+', '_', text)
-    text = re.sub(r'_+', '_', text).strip('_')
-    return text[:80]
-
-# ======================
 # 📷 HANDLE FOTO
-# (TIDAK DIUBAH)
 # ======================
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -183,14 +173,28 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         url = result["secure_url"]
 
-        save_to_sheet(date, time, month, sender, caption_final, url)
+        save_to_sheet(
+            date,
+            time,
+            month,
+            sender,
+            caption_final,
+            url
+        )
 
         if RESPONSE_MODE == "simple":
             await message.reply_text("✅ Upload berhasil")
+
         elif RESPONSE_MODE == "caption":
-            await message.reply_text(f"✅ Upload berhasil\n📝 {caption_final}")
+            await message.reply_text(
+                f"✅ Upload berhasil\n📝 {caption_final}"
+            )
+
         elif RESPONSE_MODE == "link":
-            await message.reply_text(f"✅ Upload berhasil\n🔗 {url}")
+            await message.reply_text(
+                f"✅ Upload berhasil\n🔗 {url}"
+            )
+
         else:
             await message.reply_text(
                 f"✅ BERHASIL UPLOAD\n\n"
@@ -205,11 +209,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(f"❌ ERROR: {str(e)}")
 
 # ======================
-# 🔥 HANDLE PDF (FIXED)
+# 🔥 HANDLE PDF (BARU)
 # ======================
 async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
+
         document = message.document
 
         if not document.mime_type == "application/pdf":
@@ -225,7 +230,11 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         folder_name = f"Dokumen_PDF/{date}"
 
         user = message.from_user
-        sender = f"@{user.username}" if user.username else user.full_name
+
+        if user.username:
+            sender = f"@{user.username}"
+        else:
+            sender = user.full_name
 
         filename = document.file_name or f"dokumen_{timestamp}.pdf"
 
@@ -234,19 +243,23 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = f"/tmp/{filename}"
         await file.download_to_drive(file_path)
 
-        # 🔥 FIX UTAMA DI SINI
-        public_id = clean_public_id(filename)
-
         result = cloudinary.uploader.upload(
             file_path,
             folder=folder_name,
-            public_id=public_id,
+            public_id=filename.replace(".pdf", ""),
             resource_type="raw"
         )
 
         url = result["secure_url"]
 
-        save_pdf_to_sheet(date, time, month, sender, filename, url)
+        save_pdf_to_sheet(
+            date,
+            time,
+            month,
+            sender,
+            filename,
+            url
+        )
 
         await message.reply_text("📄 PDF berhasil diupload")
 
@@ -254,16 +267,108 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(f"❌ ERROR PDF: {str(e)}")
 
 # ======================
-# (SEMUA FUNGSI LAIN TETAP SAMA - TIDAK DIUBAH)
+# 📋 /info
 # ======================
-# info_command, sheet_command, button_handler, saran_command, mode_command
-# 👉 TIDAK SAYA SENTUH SAMA SEKALI
+async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("📊 Jumlah Foto Hari Ini", callback_data="jumlah")],
+        [InlineKeyboardButton("👨‍💻 Developer", callback_data="dev")],
+        [InlineKeyboardButton("💬 Masukan", callback_data="saran")]
+    ]
 
+    await update.message.reply_text(
+        "📋 Menu Bot:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ======================
+# 📊 /sheet
+# ======================
+async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"📊 Link Dokumentasi:\n{SHEET_URL}"
+    )
+
+# ======================
+# 🎯 BUTTON
+# ======================
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+
+    if data == "jumlah":
+        today = datetime.now().strftime("%d-%m-%Y")
+        rows = sheet.get_all_values()
+
+        count = sum(1 for r in rows if r and r[0] == today)
+
+        await query.edit_message_text(f"📊 Hari ini ada {count} foto")
+
+    elif data == "dev":
+        await query.edit_message_text(f"👨‍💻 Developer: {OWNER_USERNAME}")
+
+    elif data == "saran":
+        await query.edit_message_text(
+            "💬 Kirim saran:\n\n/saran isi pesan kamu"
+        )
+
+# ======================
+# 💬 /saran
+# ======================
+async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.from_user
+    text = " ".join(context.args)
+
+    if not text:
+        await update.message.reply_text("❗ Tulis saran setelah /saran")
+        return
+
+    sender = f"@{user.username}" if user.username else user.full_name
+
+    await update.message.reply_text("✅ Saran dikirim!")
+
+    await update.message.reply_text(
+        f"📩 Saran dari {sender}:\n\n{text}\n\n👉 {OWNER_USERNAME}"
+    )
+
+# ======================
+# ⚙️ /mode
+# ======================
+async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global RESPONSE_MODE
+
+    user = update.message.from_user
+
+    if not is_owner(user):
+        await update.message.reply_text("❌ Kamu bukan owner")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Gunakan:\n/mode full | simple | caption | link"
+        )
+        return
+
+    mode = context.args[0].lower()
+
+    if mode not in ["full", "simple", "caption", "link"]:
+        await update.message.reply_text("❌ Mode tidak valid")
+        return
+
+    RESPONSE_MODE = mode
+
+    await update.message.reply_text(f"✅ Mode diubah ke: {mode}")
+
+# ======================
+# 🚀 MAIN
+# ======================
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))  # 🔥 TAMBAHAN
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("saran", saran_command))
     app.add_handler(CommandHandler("mode", mode_command))
