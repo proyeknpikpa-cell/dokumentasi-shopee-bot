@@ -8,7 +8,8 @@ import cloudinary.uploader
 import gspread
 from google.oauth2.service_account import Credentials
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+# Menambahkan WebAppInfo ke dalam import
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import (
     Application,
     MessageHandler,
@@ -30,6 +31,9 @@ GOOGLE_CLIENT_EMAIL = os.getenv("GOOGLE_CLIENT_EMAIL")
 GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 SHEET_URL = os.getenv("SHEET_URL")
+
+# Link GitHub Pages Anda
+PANDUAN_WEB_URL = "https://proyeknpikpa-cell.github.io/panduan-bot-npi/"
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
@@ -194,6 +198,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     keyboard = [
+        # Menambahkan tombol Web App di menu utama
+        [InlineKeyboardButton("📖 Panduan Bot (Interaktif)", web_app=WebAppInfo(url=PANDUAN_WEB_URL))],
         [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{user_id}")],
         [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{user_id}")],
         [InlineKeyboardButton("👨‍💻 Developer", callback_data=f"dev|{user_id}")],
@@ -225,7 +231,6 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     email = context.args[0]
-    # Validasi format email sederhana
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         await update.message.reply_text("❌ Format email tidak valid.")
         await delete_user_command(update, context)
@@ -234,8 +239,6 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_msg = await update.message.reply_text(f"⏳ Memproses akses untuk `{email}`...", parse_mode="Markdown")
     
     try:
-        # Memberikan akses Editor ke Spreadsheet
-        # Note: Dalam API Google Drive/gspread, level Editor disebut 'writer'
         sheet_instance.share(email, perm_type='user', role='writer', notify=True)
         await status_msg.edit_text(f"✅ Berhasil! `{email}` sekarang telah menjadi **Editor** di Google Sheet.", parse_mode="Markdown")
     except Exception as e:
@@ -255,12 +258,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     owner_id = int(parts[1]) if len(parts) > 1 else None
     current_user_id = query.from_user.id
 
-    # Proteksi Tombol
     if owner_id and current_user_id != owner_id:
         await query.answer("⚠️ Menu ini hanya untuk pengguna yang memanggilnya!", show_alert=True)
         return
 
-    # Aksi Tutup Menu
     if action == "close":
         await query.answer("Menu ditutup")
         await query.delete_message()
@@ -280,7 +281,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Pilih jenis dokumen yang ingin dicari:", reply_markup=InlineKeyboardMarkup(kb))
 
     elif action.startswith("list_"):
-        # Format action: list_KATEGORI_OFFSET
         _, category, offset = action.split("_")
         offset = int(offset)
         
@@ -323,7 +323,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
 
     elif action == "back_main":
+        # Memastikan tombol Web App juga muncul saat kembali ke menu utama
         keyboard = [
+            [InlineKeyboardButton("📖 Panduan Bot (Interaktif)", web_app=WebAppInfo(url=PANDUAN_WEB_URL))],
             [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{owner_id}")],
             [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{owner_id}")],
             [InlineKeyboardButton("👨‍💻 Developer", callback_data=f"dev|{owner_id}")],
