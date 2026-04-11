@@ -72,8 +72,9 @@ creds = Credentials.from_service_account_info({
 }, scopes=scope)
 
 client = gspread.authorize(creds)
-sheet_photo = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Proyek_NPI")
-sheet_doc = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Dokumen_PDF")
+sheet_instance = client.open_by_key(GOOGLE_SHEET_ID)
+sheet_photo = sheet_instance.worksheet("Proyek_NPI")
+sheet_doc = sheet_instance.worksheet("Dokumen_PDF")
 
 # ======================
 # 🛠️ HELPER
@@ -208,6 +209,37 @@ async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         disable_web_page_preview=True
     )
+    await delete_user_command(update, context)
+
+async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Memberikan akses editor ke email yang ditentukan (Khusus Owner)"""
+    user = update.effective_user
+    if not is_owner(user):
+        await update.message.reply_text("❌ Akses ditolak. Hanya owner yang bisa memberi izin.")
+        await delete_user_command(update, context)
+        return
+
+    if not context.args:
+        await update.message.reply_text("⚠️ Gunakan format: `/akses email@gmail.com`", parse_mode="Markdown")
+        await delete_user_command(update, context)
+        return
+
+    email = context.args[0]
+    # Validasi format email sederhana
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+        await update.message.reply_text("❌ Format email tidak valid.")
+        await delete_user_command(update, context)
+        return
+
+    status_msg = await update.message.reply_text(f"⏳ Memproses akses untuk `{email}`...", parse_mode="Markdown")
+    
+    try:
+        # Memberikan akses Editor ke Spreadsheet
+        sheet_instance.share(email, perm_type='user', role='editor', notify=True)
+        await status_msg.edit_text(f"✅ Berhasil! `{email}` sekarang telah menjadi **Editor** di Google Sheet.", parse_mode="Markdown")
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Gagal memberikan akses: {str(e)}")
+    
     await delete_user_command(update, context)
 
 # ======================
@@ -353,6 +385,7 @@ def main():
     app.add_handler(CommandHandler("saran", saran_command))
     app.add_handler(CommandHandler("mode", mode_command))
     app.add_handler(CommandHandler("sheet", sheet_command))
+    app.add_handler(CommandHandler("akses", akses_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     print("🤖 Bot Aktif (NPI Project)...")
     app.run_polling()
