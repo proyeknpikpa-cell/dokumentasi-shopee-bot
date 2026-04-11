@@ -77,6 +77,9 @@ creds = Credentials.from_service_account_info({
 client = gspread.authorize(creds)
 sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Proyek_NPI")
 
+# 🔥 TAMBAHAN SHEET PDF
+sheet_pdf = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Dokumen_PDF")
+
 # ======================
 # 📊 SAVE SHEET
 # ======================
@@ -87,6 +90,17 @@ def save_to_sheet(date, time, month, sender, caption, url):
         month,
         sender,
         caption,
+        url
+    ])
+
+# 🔥 TAMBAHAN SAVE PDF
+def save_pdf_to_sheet(date, time, month, sender, filename, url):
+    sheet_pdf.append_row([
+        date,
+        time,
+        month,
+        sender,
+        filename,
         url
     ])
 
@@ -113,9 +127,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             sender = user.full_name
 
-        # ======================
-        # 🔥 CAPTION LOGIC BARU
-        # ======================
         import re
 
         caption_raw = message.caption or ""
@@ -147,18 +158,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             base_name = f"foto_{timestamp}"
             caption_final = "-"
 
-        # ======================
-        # DOWNLOAD FOTO
-        # ======================
         photo = message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
 
         file_path = f"/tmp/{base_name}.jpg"
         await file.download_to_drive(file_path)
 
-        # ======================
-        # UPLOAD CLOUDINARY
-        # ======================
         result = cloudinary.uploader.upload(
             file_path,
             folder=folder_name,
@@ -177,9 +182,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             url
         )
 
-        # ======================
-        # RESPONSE MODE
-        # ======================
         if RESPONSE_MODE == "simple":
             await message.reply_text("✅ Upload berhasil")
 
@@ -193,7 +195,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ Upload berhasil\n🔗 {url}"
             )
 
-        else:  # full
+        else:
             await message.reply_text(
                 f"✅ BERHASIL UPLOAD\n\n"
                 f"📅 {date} | ⏰ {time}\n"
@@ -205,6 +207,64 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         await message.reply_text(f"❌ ERROR: {str(e)}")
+
+# ======================
+# 🔥 HANDLE PDF (BARU)
+# ======================
+async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        message = update.message
+
+        document = message.document
+
+        if not document.mime_type == "application/pdf":
+            return
+
+        msg_time = message.date.astimezone(ZoneInfo("Asia/Jakarta"))
+
+        date = msg_time.strftime("%d-%m-%Y")
+        time = msg_time.strftime("%H:%M:%S")
+        month = msg_time.strftime("%B %Y")
+        timestamp = msg_time.strftime("%Y-%m-%d_%H-%M-%S")
+
+        folder_name = f"Dokumen_PDF/{date}"
+
+        user = message.from_user
+
+        if user.username:
+            sender = f"@{user.username}"
+        else:
+            sender = user.full_name
+
+        filename = document.file_name or f"dokumen_{timestamp}.pdf"
+
+        file = await context.bot.get_file(document.file_id)
+
+        file_path = f"/tmp/{filename}"
+        await file.download_to_drive(file_path)
+
+        result = cloudinary.uploader.upload(
+            file_path,
+            folder=folder_name,
+            public_id=filename.replace(".pdf", ""),
+            resource_type="raw"
+        )
+
+        url = result["secure_url"]
+
+        save_pdf_to_sheet(
+            date,
+            time,
+            month,
+            sender,
+            filename,
+            url
+        )
+
+        await message.reply_text("📄 PDF berhasil diupload")
+
+    except Exception as e:
+        await message.reply_text(f"❌ ERROR PDF: {str(e)}")
 
 # ======================
 # 📋 /info
@@ -274,7 +334,7 @@ async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ======================
-# ⚙️ /mode (OWNER ONLY)
+# ⚙️ /mode
 # ======================
 async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global RESPONSE_MODE
@@ -308,6 +368,7 @@ def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))  # 🔥 TAMBAHAN
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("saran", saran_command))
     app.add_handler(CommandHandler("mode", mode_command))
