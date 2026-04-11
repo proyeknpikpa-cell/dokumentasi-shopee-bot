@@ -99,7 +99,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         msg_time = message.date.astimezone(ZoneInfo("Asia/Jakarta"))
 
-        date = msg_time.strftime("%Y-%m-%d")
+        date = msg_time.strftime("%d-%m-%Y")
         time = msg_time.strftime("%H:%M:%S")
         month = msg_time.strftime("%B %Y")
         timestamp = msg_time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -113,25 +113,52 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             sender = user.full_name
 
+        # ======================
+        # 🔥 CAPTION LOGIC BARU
+        # ======================
+        import re
+
         caption_raw = message.caption or ""
 
+        def clean_text(text):
+            text = text.lower()
+            text = re.sub(r'[^a-z0-9\s]', ' ', text)
+            text = "_".join(text.split())
+            return text[:80]
+
         if caption_raw.strip():
-            if "kegiatan" in caption_raw.lower():
-                base_name = f"Kegiatan_{date}_{time}"
-            else:
-                clean = caption_raw.strip().replace(" ", "_")[:30]
-                base_name = f"{clean}_{timestamp}"
             caption_final = caption_raw
+
+            kegiatan_match = re.search(r'kegiatan\s*:\s*(.*)', caption_raw, re.IGNORECASE)
+            lokasi_match = re.search(r'lokasi\s*:\s*(.*)', caption_raw, re.IGNORECASE)
+
+            kegiatan_text = kegiatan_match.group(1).strip() if kegiatan_match else ""
+            lokasi_text = lokasi_match.group(1).strip() if lokasi_match else ""
+
+            if kegiatan_text or lokasi_text:
+                nama_file = f"kegiatan_{kegiatan_text}_lokasi_{lokasi_text}"
+                clean_name = clean_text(nama_file)
+                base_name = f"{clean_name}_{timestamp}"
+            else:
+                clean = clean_text(caption_raw)
+                base_name = f"{clean}_{timestamp}"
+
         else:
-            base_name = f"tanpa_keterangan_{timestamp}"
+            base_name = f"foto_{timestamp}"
             caption_final = "-"
 
+        # ======================
+        # DOWNLOAD FOTO
+        # ======================
         photo = message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
 
         file_path = f"/tmp/{base_name}.jpg"
         await file.download_to_drive(file_path)
 
+        # ======================
+        # UPLOAD CLOUDINARY
+        # ======================
         result = cloudinary.uploader.upload(
             file_path,
             folder=folder_name,
@@ -195,7 +222,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ======================
-# 📊 /sheet (BARU)
+# 📊 /sheet
 # ======================
 async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -212,7 +239,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "jumlah":
-        today = datetime.now().strftime("%Y-%m-%d")
+        today = datetime.now().strftime("%d-%m-%Y")
         rows = sheet.get_all_values()
 
         count = sum(1 for r in rows if r and r[0] == today)
@@ -284,7 +311,7 @@ def main():
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("saran", saran_command))
     app.add_handler(CommandHandler("mode", mode_command))
-    app.add_handler(CommandHandler("sheet", sheet_command))  # 🔥 TAMBAHAN
+    app.add_handler(CommandHandler("sheet", sheet_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     print("🤖 Bot jalan...")
