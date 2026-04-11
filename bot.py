@@ -32,6 +32,9 @@ GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY")
 
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 
+# 🔥 TAMBAHAN (LINK SHEET)
+SHEET_URL = os.getenv("SHEET_URL")
+
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
 
@@ -192,6 +195,14 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ======================
+# 📊 /sheet (BARU)
+# ======================
+async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        f"📊 Link Data Proyek:\n{SHEET_URL}"
+    )
+
+# ======================
 # 🎯 BUTTON
 # ======================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -273,6 +284,7 @@ def main():
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("saran", saran_command))
     app.add_handler(CommandHandler("mode", mode_command))
+    app.add_handler(CommandHandler("sheet", sheet_command))  # 🔥 TAMBAHAN
     app.add_handler(CallbackQueryHandler(button_handler))
 
     print("🤖 Bot jalan...")
