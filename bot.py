@@ -36,6 +36,16 @@ if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
 
 # ======================
+# ⚙️ MODE RESPONSE
+# ======================
+RESPONSE_MODE = "full"
+
+def is_owner(user):
+    if not user.username:
+        return False
+    return user.username.lower() == OWNER_USERNAME.replace("@", "").lower()
+
+# ======================
 # ☁️ CLOUDINARY
 # ======================
 cloudinary.config(
@@ -65,7 +75,7 @@ client = gspread.authorize(creds)
 sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Proyek_NPI")
 
 # ======================
-# 📊 SAVE SHEET (UPDATED)
+# 📊 SAVE SHEET
 # ======================
 def save_to_sheet(date, time, month, sender, caption, url):
     sheet.append_row([
@@ -84,7 +94,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
 
-        # 🕒 waktu lokal Jakarta
         msg_time = message.date.astimezone(ZoneInfo("Asia/Jakarta"))
 
         date = msg_time.strftime("%Y-%m-%d")
@@ -94,9 +103,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         folder_name = f"Proyek_NPI/{date}"
 
-        # ======================
-        # 👤 AMBIL PENGIRIM
-        # ======================
         user = message.from_user
 
         if user.username:
@@ -104,9 +110,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             sender = user.full_name
 
-        # ======================
-        # 📝 CAPTION
-        # ======================
         caption_raw = message.caption or ""
 
         if caption_raw.strip():
@@ -120,18 +123,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             base_name = f"tanpa_keterangan_{timestamp}"
             caption_final = "-"
 
-        # ======================
-        # DOWNLOAD FOTO
-        # ======================
         photo = message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
 
         file_path = f"/tmp/{base_name}.jpg"
         await file.download_to_drive(file_path)
 
-        # ======================
-        # UPLOAD CLOUDINARY
-        # ======================
         result = cloudinary.uploader.upload(
             file_path,
             folder=folder_name,
@@ -141,9 +138,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         url = result["secure_url"]
 
-        # ======================
-        # SAVE SHEET
-        # ======================
         save_to_sheet(
             date,
             time,
@@ -154,16 +148,30 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # ======================
-        # RESPONSE
+        # RESPONSE MODE
         # ======================
-        await message.reply_text(
-            f"✅ BERHASIL UPLOAD\n\n"
-            f"📅 {date} | ⏰ {time}\n"
-            f"👤 {sender}\n"
-            f"📝 {caption_final}\n"
-            f"📂 {folder_name}\n"
-            f"🔗 {url}"
-        )
+        if RESPONSE_MODE == "simple":
+            await message.reply_text("✅ Upload berhasil")
+
+        elif RESPONSE_MODE == "caption":
+            await message.reply_text(
+                f"✅ Upload berhasil\n📝 {caption_final}"
+            )
+
+        elif RESPONSE_MODE == "link":
+            await message.reply_text(
+                f"✅ Upload berhasil\n🔗 {url}"
+            )
+
+        else:  # full
+            await message.reply_text(
+                f"✅ BERHASIL UPLOAD\n\n"
+                f"📅 {date} | ⏰ {time}\n"
+                f"👤 {sender}\n"
+                f"📝 {caption_final}\n"
+                f"📂 {folder_name}\n"
+                f"🔗 {url}"
+            )
 
     except Exception as e:
         await message.reply_text(f"❌ ERROR: {str(e)}")
@@ -228,6 +236,34 @@ async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ======================
+# ⚙️ /mode (OWNER ONLY)
+# ======================
+async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global RESPONSE_MODE
+
+    user = update.message.from_user
+
+    if not is_owner(user):
+        await update.message.reply_text("❌ Kamu bukan owner")
+        return
+
+    if not context.args:
+        await update.message.reply_text(
+            "Gunakan:\n/mode full | simple | caption | link"
+        )
+        return
+
+    mode = context.args[0].lower()
+
+    if mode not in ["full", "simple", "caption", "link"]:
+        await update.message.reply_text("❌ Mode tidak valid")
+        return
+
+    RESPONSE_MODE = mode
+
+    await update.message.reply_text(f"✅ Mode diubah ke: {mode}")
+
+# ======================
 # 🚀 MAIN
 # ======================
 def main():
@@ -236,6 +272,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("saran", saran_command))
+    app.add_handler(CommandHandler("mode", mode_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     print("🤖 Bot jalan...")
