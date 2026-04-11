@@ -235,7 +235,8 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # Memberikan akses Editor ke Spreadsheet
-        sheet_instance.share(email, perm_type='user', role='editor', notify=True)
+        # Note: Dalam API Google Drive/gspread, level Editor disebut 'writer'
+        sheet_instance.share(email, perm_type='user', role='writer', notify=True)
         await status_msg.edit_text(f"✅ Berhasil! `{email}` sekarang telah menjadi **Editor** di Google Sheet.", parse_mode="Markdown")
     except Exception as e:
         await status_msg.edit_text(f"❌ Gagal memberikan akses: {str(e)}")
