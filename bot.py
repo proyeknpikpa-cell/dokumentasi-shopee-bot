@@ -35,9 +35,10 @@ if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
 
 # ======================
-# ⚙️ MODE RESPONSE
+# ⚙️ GLOBAL STATE
 # ======================
 RESPONSE_MODE = "full"
+ITEMS_PER_PAGE = 10
 
 def is_owner(user):
     if not user.username:
@@ -71,30 +72,42 @@ creds = Credentials.from_service_account_info({
 }, scopes=scope)
 
 client = gspread.authorize(creds)
-sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Proyek_NPI")
-sheet_pdf = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Dokumen_PDF")
-
-# ======================
-# 📊 SAVE SHEET
-# ======================
-def save_to_sheet(date, time, month, sender, caption, url):
-    sheet.append_row([date, time, month, sender, caption, url])
-
-def save_pdf_to_sheet(date, time, month, sender, filename, url):
-    sheet_pdf.append_row([date, time, month, sender, filename, url])
+sheet_photo = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Proyek_NPI")
+sheet_doc = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Dokumen_PDF")
 
 # ======================
 # 🛠️ HELPER
 # ======================
 def clean_text(text):
-    """Membersihkan teks agar aman digunakan sebagai nama file/public_id"""
+    """Pembersihan nama file untuk public_id Cloudinary"""
+    # Hapus ekstensi umum sebelum cleaning
+    exts = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt']
     text = text.lower()
-    # Menghapus ekstensi .pdf di akhir jika ada sebelum cleaning
-    if text.endswith(".pdf"):
-        text = text[:-4]
+    for ext in exts:
+        if text.endswith(ext):
+            text = text.replace(ext, "")
     text = re.sub(r'[^a-z0-9\s]', ' ', text)
     text = "_".join(text.split())
     return text[:80]
+
+def get_file_category(filename):
+    """Kategorisasi jenis file berdasarkan ekstensi"""
+    fn = filename.lower()
+    if fn.endswith('.pdf'): return 'PDF'
+    if fn.endswith(('.doc', '.docx')): return 'WORD'
+    if fn.endswith(('.xls', '.xlsx')): return 'EXCEL'
+    if fn.endswith(('.ppt', '.pptx')): return 'PPT'
+    return 'LAINNYA'
+
+# ======================
+# 📊 SAVE TO SHEET
+# ======================
+def save_photo_to_sheet(date, time, month, sender, caption, url):
+    sheet_photo.append_row([date, time, month, sender, caption, url])
+
+def save_doc_to_sheet(date, time, month, sender, filename, category, url):
+    # Struktur: Tanggal, Jam, Bulan, Pengirim, Caption (Nama File), Jenis File, Link
+    sheet_doc.append_row([date, time, month, sender, filename, category, url])
 
 # ======================
 # 📷 HANDLE FOTO
@@ -114,22 +127,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sender = f"@{user.username}" if user.username else user.full_name
 
         caption_raw = message.caption or ""
-
+        
+        # Logika penamaan file foto
         if caption_raw.strip():
             caption_final = caption_raw
-            kegiatan_match = re.search(r'kegiatan\s*:\s*(.*)', caption_raw, re.IGNORECASE)
-            lokasi_match = re.search(r'lokasi\s*:\s*(.*)', caption_raw, re.IGNORECASE)
-
-            kegiatan_text = kegiatan_match.group(1).strip() if kegiatan_match else ""
-            lokasi_text = lokasi_match.group(1).strip() if lokasi_match else ""
-
-            if kegiatan_text or lokasi_text:
-                nama_file = f"kegiatan_{kegiatan_text}_lokasi_{lokasi_text}"
-                clean_name = clean_text(nama_file)
-                base_name = f"{clean_name}_{timestamp}"
-            else:
-                clean = clean_text(caption_raw)
-                base_name = f"{clean}_{timestamp}"
+            clean = clean_text(caption_raw)
+            base_name = f"{clean}_{timestamp}"
         else:
             base_name = f"foto_{timestamp}"
             caption_final = "-"
@@ -147,34 +150,24 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         url = result["secure_url"]
-        save_to_sheet(date, time, month, sender, caption_final, url)
+        save_photo_to_sheet(date, time, month, sender, caption_final, url)
 
-        # Response logic
+        # Respon sesuai mode
         if RESPONSE_MODE == "simple":
-            await message.reply_text("✅ Upload berhasil")
-        elif RESPONSE_MODE == "caption":
-            await message.reply_text(f"✅ Upload berhasil\n📝 {caption_final}")
-        elif RESPONSE_MODE == "link":
-            await message.reply_text(f"✅ Upload berhasil\n🔗 {url}")
+            await message.reply_text("✅ Foto berhasil diupload")
         else:
-            await message.reply_text(
-                f"✅ BERHASIL UPLOAD\n\n📅 {date} | ⏰ {time}\n"
-                f"👤 {sender}\n📝 {caption_final}\n📂 {folder_name}\n🔗 {url}"
-            )
+            await message.reply_text(f"✅ FOTO BERHASIL\n👤 {sender}\n📝 {caption_final}\n🔗 {url}")
 
     except Exception as e:
-        await message.reply_text(f"❌ ERROR: {str(e)}")
+        await message.reply_text(f"❌ ERROR FOTO: {str(e)}")
 
 # ======================
-# 📄 HANDLE PDF (FIXED)
+# 📄 HANDLE DOKUMEN (ALL)
 # ======================
-async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
-        document = message.document
-
-        if not document.mime_type == "application/pdf":
-            return
+        doc = message.document
 
         msg_time = message.date.astimezone(ZoneInfo("Asia/Jakarta"))
         date = msg_time.strftime("%d-%m-%Y")
@@ -182,74 +175,136 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         month = msg_time.strftime("%B %Y")
         timestamp = msg_time.strftime("%Y-%m-%d_%H-%M-%S")
 
-        folder_name = f"Dokumen_PDF/{date}"
         user = message.from_user
         sender = f"@{user.username}" if user.username else user.full_name
-
-        original_filename = document.file_name or f"dokumen_{timestamp}.pdf"
         
-        # PERBAIKAN: Bersihkan nama file agar valid untuk public_id Cloudinary
-        # Cloudinary tidak suka spasi atau karakter khusus seperti % dalam public_id
-        safe_name = clean_text(original_filename)
+        original_name = doc.file_name or f"file_{timestamp}"
+        category = get_file_category(original_name)
+        
+        # Cloudinary setup
+        folder_name = f"Dokumen_Proyek/{category}/{date}"
+        safe_name = clean_text(original_name)
         public_id_final = f"{safe_name}_{timestamp}"
 
-        file = await context.bot.get_file(document.file_id)
-        # Simpan file di /tmp dengan nama asli agar tidak bentrok
-        temp_file_path = f"/tmp/{timestamp}_{original_filename}"
-        await file.download_to_drive(temp_file_path)
+        file = await context.bot.get_file(doc.file_id)
+        temp_path = f"/tmp/{timestamp}_{original_name}"
+        await file.download_to_drive(temp_path)
 
         result = cloudinary.uploader.upload(
-            temp_file_path,
+            temp_path,
             folder=folder_name,
             public_id=public_id_final,
-            resource_type="raw"  # Wajib 'raw' untuk non-image seperti PDF
+            resource_type="raw"
         )
 
         url = result["secure_url"]
-        save_pdf_to_sheet(date, time, month, sender, original_filename, url)
+        save_doc_to_sheet(date, time, month, sender, original_name, category, url)
 
         await message.reply_text(
-            f"📄 PDF BERHASIL DIUPLOAD\n\n"
-            f"📁 Nama: {original_filename}\n"
-            f"👤 Oleh: {sender}\n"
-            f"🔗 Link: {url}"
+            f"✅ DOKUMEN BERHASIL ({category})\n"
+            f"📁 {original_name}\n"
+            f"👤 {sender}\n"
+            f"🔗 {url}"
         )
 
-        # Hapus file temporary
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
     except Exception as e:
-        await message.reply_text(f"❌ ERROR PDF: {str(e)}")
+        await message.reply_text(f"❌ ERROR DOKUMEN: {str(e)}")
 
 # ======================
-# Sisanya (info, sheet, button, saran, mode, main) tetap sama
+# 📋 COMMANDS
 # ======================
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("📊 Jumlah Foto Hari Ini", callback_data="jumlah")],
-        [InlineKeyboardButton("👨‍💻 Developer", callback_data="dev")],
-        [InlineKeyboardButton("💬 Masukan", callback_data="saran")]
+        [InlineKeyboardButton("📄 Cek Dokumen", callback_data="menu_doc")],
+        [InlineKeyboardButton("📊 Statistik Foto", callback_data="jumlah")],
+        [InlineKeyboardButton("👨‍💻 Developer", callback_data="dev")]
     ]
     await update.message.reply_text("📋 Menu Bot:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📊 Link Dokumentasi:\n{SHEET_URL}")
 
+# ======================
+# 🎯 CALLBACK HANDLER (PAGINATION)
+# ======================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     data = query.data
-    if data == "jumlah":
-        today = datetime.now().strftime("%d-%m-%Y")
-        rows = sheet.get_all_values()
-        count = sum(1 for r in rows if r and r[0] == today)
-        await query.edit_message_text(f"📊 Hari ini ada {count} foto")
-    elif data == "dev":
-        await query.edit_message_text(f"👨‍💻 Developer: {OWNER_USERNAME}")
-    elif data == "saran":
-        await query.edit_message_text("💬 Kirim saran:\n\n/saran isi pesan kamu")
+    await query.answer()
 
+    if data == "menu_doc":
+        kb = [
+            [InlineKeyboardButton("📕 PDF", callback_data="list_PDF_0")],
+            [InlineKeyboardButton("📘 WORD", callback_data="list_WORD_0")],
+            [InlineKeyboardButton("📗 EXCEL", callback_data="list_EXCEL_0")],
+            [InlineKeyboardButton("📙 PPT", callback_data="list_PPT_0")],
+            [InlineKeyboardButton("🔙 Kembali", callback_data="back_main")]
+        ]
+        await query.edit_message_text("Pilih jenis dokumen yang ingin dicari:", reply_markup=InlineKeyboardMarkup(kb))
+
+    elif data.startswith("list_"):
+        # Format data: list_KATEGORI_OFFSET
+        _, category, offset = data.split("_")
+        offset = int(offset)
+        
+        all_rows = sheet_doc.get_all_values()[1:] # Skip header
+        # Filter berdasarkan kategori (Kolom F / Indeks 5)
+        filtered = [r for r in all_rows if len(r) > 5 and r[5] == category]
+        filtered.reverse() # Terbaru di atas
+
+        total = len(filtered)
+        start = offset
+        end = offset + ITEMS_PER_PAGE
+        current_list = filtered[start:end]
+
+        if not current_list:
+            await query.edit_message_text(f"📭 Belum ada dokumen {category}", 
+                                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Kembali", callback_data="menu_doc")]]))
+            return
+
+        text = f"📂 **DAFTAR DOKUMEN {category}**\n"
+        text += f"_(Menampilkan {start+1}-{min(end, total)} dari {total} file)_\n\n"
+
+        for i, row in enumerate(current_list, start=1):
+            name = row[4] # Kolom E (Caption/Nama File)
+            link = row[6] # Kolom G (Link)
+            text += f"{i}. **{name}**\n🔗 [Buka Dokumen]({link})\n\n"
+
+        buttons = []
+        nav_row = []
+        if end < total:
+            nav_row.append(InlineKeyboardButton("⬅️ Sebelumnya (Lama)", callback_data=f"list_{category}_{end}"))
+        if offset > 0:
+            nav_row.append(InlineKeyboardButton("➡️ Terbaru", callback_data=f"list_{category}_{max(0, offset-ITEMS_PER_PAGE)}"))
+        
+        if nav_row: buttons.append(nav_row)
+        buttons.append([InlineKeyboardButton("🔙 Pilih Jenis Lain", callback_data="menu_doc")])
+
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+
+    elif data == "back_main":
+        keyboard = [
+            [InlineKeyboardButton("📄 Cek Dokumen", callback_data="menu_doc")],
+            [InlineKeyboardButton("📊 Statistik Foto", callback_data="jumlah")],
+            [InlineKeyboardButton("👨‍💻 Developer", callback_data="dev")]
+        ]
+        await query.edit_message_text("📋 Menu Bot:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "jumlah":
+        today = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d-%m-%Y")
+        rows = sheet_photo.get_all_values()
+        count = sum(1 for r in rows if r and r[0] == today)
+        await query.edit_message_text(f"📊 Hari ini ada {count} foto diupload.\n\n🔙 Klik /info untuk menu lain.")
+
+    elif data == "dev":
+        await query.edit_message_text(f"👨‍💻 Developer: {OWNER_USERNAME}\n\n🔙 Klik /info untuk menu lain.")
+
+# ======================
+# 💬 SARAN & MODE
+# ======================
 async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     text = " ".join(context.args)
@@ -257,36 +312,38 @@ async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❗ Tulis saran setelah /saran")
         return
     sender = f"@{user.username}" if user.username else user.full_name
-    await update.message.reply_text("✅ Saran dikirim!")
-    # Kirim ke owner (asumsi owner username adalah target)
-    print(f"Saran dari {sender}: {text}")
+    await update.message.reply_text("✅ Saran terkirim ke log!")
+    print(f"SARAN dari {sender}: {text}")
 
 async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global RESPONSE_MODE
     user = update.message.from_user
     if not is_owner(user):
-        await update.message.reply_text("❌ Kamu bukan owner")
+        await update.message.reply_text("❌ Akses ditolak.")
         return
     if not context.args:
-        await update.message.reply_text("Gunakan:\n/mode full | simple | caption | link")
+        await update.message.reply_text("Gunakan: /mode full | simple")
         return
     mode = context.args[0].lower()
-    if mode not in ["full", "simple", "caption", "link"]:
-        await update.message.reply_text("❌ Mode tidak valid")
-        return
     RESPONSE_MODE = mode
-    await update.message.reply_text(f"✅ Mode diubah ke: {mode}")
+    await update.message.reply_text(f"✅ Respon mode: {mode}")
 
+# ======================
+# 🚀 MAIN
+# ======================
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    # Handlers
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(CommandHandler("info", info_command))
     app.add_handler(CommandHandler("saran", saran_command))
     app.add_handler(CommandHandler("mode", mode_command))
     app.add_handler(CommandHandler("sheet", sheet_command))
     app.add_handler(CallbackQueryHandler(button_handler))
-    print("🤖 Bot jalan...")
+
+    print("🤖 Bot Aktif (NPI Project)...")
     app.run_polling()
 
 if __name__ == "__main__":
