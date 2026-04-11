@@ -30,7 +30,7 @@ GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 GOOGLE_CLIENT_EMAIL = os.getenv("GOOGLE_CLIENT_EMAIL")
 GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY")
 
-OWNER_USERNAME = os.getenv("OWNER_USERNAME")  # <-- username kamu
+OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
@@ -65,10 +65,17 @@ client = gspread.authorize(creds)
 sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet("Proyek_NPI")
 
 # ======================
-# 📊 SAVE SHEET
+# 📊 SAVE SHEET (UPDATED)
 # ======================
-def save_to_sheet(date, time, caption, url):
-    sheet.append_row([date, time, caption, url])
+def save_to_sheet(date, time, month, sender, caption, url):
+    sheet.append_row([
+        date,
+        time,
+        month,
+        sender,
+        caption,
+        url
+    ])
 
 # ======================
 # 📷 HANDLE FOTO
@@ -76,14 +83,30 @@ def save_to_sheet(date, time, caption, url):
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         message = update.message
+
+        # 🕒 waktu lokal Jakarta
         msg_time = message.date.astimezone(ZoneInfo("Asia/Jakarta"))
 
         date = msg_time.strftime("%Y-%m-%d")
         time = msg_time.strftime("%H:%M:%S")
+        month = msg_time.strftime("%B %Y")
         timestamp = msg_time.strftime("%Y-%m-%d_%H-%M-%S")
 
         folder_name = f"Proyek_NPI/{date}"
 
+        # ======================
+        # 👤 AMBIL PENGIRIM
+        # ======================
+        user = message.from_user
+
+        if user.username:
+            sender = f"@{user.username}"
+        else:
+            sender = user.full_name
+
+        # ======================
+        # 📝 CAPTION
+        # ======================
         caption_raw = message.caption or ""
 
         if caption_raw.strip():
@@ -97,12 +120,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             base_name = f"tanpa_keterangan_{timestamp}"
             caption_final = "-"
 
+        # ======================
+        # DOWNLOAD FOTO
+        # ======================
         photo = message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
 
         file_path = f"/tmp/{base_name}.jpg"
         await file.download_to_drive(file_path)
 
+        # ======================
+        # UPLOAD CLOUDINARY
+        # ======================
         result = cloudinary.uploader.upload(
             file_path,
             folder=folder_name,
@@ -112,11 +141,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         url = result["secure_url"]
 
-        save_to_sheet(date, time, caption_final, url)
+        # ======================
+        # SAVE SHEET
+        # ======================
+        save_to_sheet(
+            date,
+            time,
+            month,
+            sender,
+            caption_final,
+            url
+        )
 
+        # ======================
+        # RESPONSE
+        # ======================
         await message.reply_text(
             f"✅ BERHASIL UPLOAD\n\n"
             f"📅 {date} | ⏰ {time}\n"
+            f"👤 {sender}\n"
             f"📝 {caption_final}\n"
             f"📂 {folder_name}\n"
             f"🔗 {url}"
@@ -126,7 +169,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(f"❌ ERROR: {str(e)}")
 
 # ======================
-# 📋 /info MENU
+# 📋 /info
 # ======================
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -141,7 +184,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ======================
-# 🎯 HANDLE BUTTON
+# 🎯 BUTTON
 # ======================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -152,6 +195,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "jumlah":
         today = datetime.now().strftime("%Y-%m-%d")
         rows = sheet.get_all_values()
+
         count = sum(1 for r in rows if r and r[0] == today)
 
         await query.edit_message_text(f"📊 Hari ini ada {count} foto")
@@ -175,10 +219,12 @@ async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❗ Tulis saran setelah /saran")
         return
 
+    sender = f"@{user.username}" if user.username else user.full_name
+
     await update.message.reply_text("✅ Saran dikirim!")
 
     await update.message.reply_text(
-        f"📩 Saran dari @{user.username}:\n\n{text}\n\n👉 {OWNER_USERNAME}"
+        f"📩 Saran dari {sender}:\n\n{text}\n\n👉 {OWNER_USERNAME}"
     )
 
 # ======================
