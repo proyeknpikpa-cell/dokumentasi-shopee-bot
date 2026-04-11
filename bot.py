@@ -226,7 +226,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ======================
 async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        f"📊 Link Data Proyek:\n{SHEET_URL}"
+        f"📊 Link Dokumentasi:\n{SHEET_URL}"
     )
 
 # ======================
