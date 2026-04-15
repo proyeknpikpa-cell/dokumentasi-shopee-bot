@@ -4,6 +4,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import cloudinary
 import cloudinary.uploader
+import google.generativeai as genai
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -30,16 +31,21 @@ GOOGLE_CLIENT_EMAIL = os.getenv("GOOGLE_CLIENT_EMAIL")
 GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 SHEET_URL = os.getenv("SHEET_URL")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Tambahkan API Key Gemini di Env
 PANDUAN_URL = "https://proyeknpikpa-cell.github.io/panduan-bot-npi/"
 
 if not TELEGRAM_TOKEN:
     raise ValueError("TELEGRAM_TOKEN tidak ditemukan!")
 
 # ======================
-# ⚙️ GLOBAL STATE
+# ⚙️ GLOBAL STATE & AI CONFIG
 # ======================
 RESPONSE_MODE = "full"
 ITEMS_PER_PAGE = 10
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model_ai = genai.GenerativeModel('gemini-1.5-flash')
 
 def is_owner(user):
     if not user.username:
@@ -78,7 +84,7 @@ sheet_photo = sheet_instance.worksheet("Proyek_NPI")
 sheet_doc = sheet_instance.worksheet("Dokumen_PDF")
 
 # ======================
-# 🛠️ HELPER
+# 🛠️ HELPER & AI LOGIC
 # ======================
 def clean_text(text):
     """Pembersihan nama file untuk public_id Cloudinary"""
@@ -90,6 +96,27 @@ def clean_text(text):
     text = re.sub(r'[^a-z0-9\s]', ' ', text)
     text = "_".join(text.split())
     return text[:80]
+
+async def ai_extract_caption(raw_caption):
+    """Menggunakan AI untuk mengekstraksi Kegiatan dan Lokasi saja"""
+    if not GEMINI_API_KEY or not raw_caption:
+        return raw_caption
+    
+    prompt = f"""
+    Ekstrak informasi penting dari teks laporan proyek berikut.
+    Ambil HANYA bagian 'Kegiatan' dan 'Lokasi' saja.
+    Format jawaban harus: "Kegiatan: [isi] | Lokasi: [isi]"
+    Jika informasi tidak ditemukan, tulis "-".
+    Jangan berikan kalimat pengantar, langsung ke format tersebut.
+
+    Teks:
+    {raw_caption}
+    """
+    try:
+        response = model_ai.generate_content(prompt)
+        return response.text.strip()
+    except Exception:
+        return raw_caption # Balik ke teks asli jika AI gagal
 
 def get_file_category(filename):
     """Kategorisasi jenis file berdasarkan ekstensi"""
@@ -130,25 +157,42 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         folder_name = f"Proyek_NPI/{date}"
         user = message.from_user
         sender = f"@{user.username}" if user.username else user.full_name
+        
         caption_raw = message.caption or ""
+        
+        # PROSES AI: Ekstraksi hanya Kegiatan & Lokasi
         if caption_raw.strip():
-            caption_final = caption_raw
-            clean = clean_text(caption_raw)
+            caption_final = await ai_extract_caption(caption_raw)
+            clean = clean_text(caption_raw[:30]) # Ambil dikit buat nama file
             base_name = f"{clean}_{timestamp}"
         else:
             base_name = f"foto_{timestamp}"
             caption_final = "-"
+            
         photo = message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
         file_path = f"/tmp/{base_name}.jpg"
         await file.download_to_drive(file_path)
+        
         result = cloudinary.uploader.upload(file_path, folder=folder_name, public_id=base_name, overwrite=True)
         url = result["secure_url"]
+        
         save_photo_to_sheet(date, time, month, sender, caption_final, url)
+        
         if RESPONSE_MODE == "simple":
             await message.reply_text("✅ Foto berhasil diupload")
         else:
-            await message.reply_text(f"✅ FOTO BERHASIL\n👤 {sender}\n📝 {caption_final}\n🔗 {url}")
+            await message.reply_text(
+                f"✅ **FOTO BERHASIL**\n"
+                f"👤 {sender}\n"
+                f"📝 {caption_final}\n"
+                f"🔗 [Lihat Foto]({url})",
+                parse_mode="Markdown"
+            )
+            
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            
     except Exception as e:
         await message.reply_text(f"❌ ERROR FOTO: {str(e)}")
 
@@ -221,7 +265,6 @@ async def cekdokumen_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     target_sender = " ".join(context.args).strip()
-    # Panggil helper untuk mengambil data
     await show_list_by_sender(update, context, target_sender, 0, user_id, is_callback=False)
     await delete_user_command(update, context)
 
@@ -260,7 +303,6 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_list_by_sender(update_or_query, context, sender_name, offset, owner_id, is_callback=True):
     """Helper untuk menampilkan daftar file berdasarkan pengirim"""
     all_rows = sheet_doc.get_all_values()[1:]
-    # Filter berdasarkan kolom sender (index 3)
     filtered = [r for r in all_rows if len(r) > 3 and r[3].lower() == sender_name.lower()]
     filtered.reverse()
 
@@ -291,9 +333,6 @@ async def show_list_by_sender(update_or_query, context, sender_name, offset, own
 
     buttons = []
     nav_row = []
-    # Callback data format: listsender_NamaPengirim_Offset
-    # Kita bersihkan sender_name dari karakter khusus untuk callback_data jika perlu, 
-    # namun telegram mendukung string selama total callback data < 64 bytes.
     if end < total:
         nav_row.append(InlineKeyboardButton("⬅️ Sebelumnya", callback_data=f"lsender_{sender_name}_{end}|{owner_id}"))
     if offset > 0:
@@ -341,7 +380,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Pilih metode pencarian dokumen:", reply_markup=InlineKeyboardMarkup(kb))
 
     elif action_data == "search_sender":
-        # Ambil daftar unik pengirim dari sheet
         all_rows = sheet_doc.get_all_values()[1:]
         senders = sorted(list(set(row[3] for row in all_rows if len(row) > 3 and row[3])))
         
@@ -353,14 +391,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = "👥 **Pilih Pengirim:**\nAtau gunakan perintah `/cekdokumen @username`"
         kb = []
         for s in senders:
-            # Batasi panjang string agar tidak error di callback_data
             kb.append([InlineKeyboardButton(f"👤 {s}", callback_data=f"lsender_{s}_0|{owner_id}")])
         
         kb.append([InlineKeyboardButton("🔙 Kembali", callback_data=f"menu_doc|{owner_id}")])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
     elif action_data.startswith("lsender_"):
-        # Format: lsender_Nama Pengirim_Offset
         try:
             _, rest = action_data.split("_", 1)
             parts_val = rest.rsplit("_", 1)
