@@ -1,5 +1,6 @@
 import os
 import re
+import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import cloudinary
@@ -31,7 +32,7 @@ GOOGLE_CLIENT_EMAIL = os.getenv("GOOGLE_CLIENT_EMAIL")
 GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 SHEET_URL = os.getenv("SHEET_URL")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # Tambahkan API Key Gemini di Env
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PANDUAN_URL = "https://proyeknpikpa-cell.github.io/panduan-bot-npi/"
 
 if not TELEGRAM_TOKEN:
@@ -43,9 +44,14 @@ if not TELEGRAM_TOKEN:
 RESPONSE_MODE = "full"
 ITEMS_PER_PAGE = 10
 
+# Inisialisasi AI dengan pengecekan aman
+model_ai = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model_ai = genai.GenerativeModel('gemini-1.5-flash')
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model_ai = genai.GenerativeModel('gemini-1.5-flash')
+    except Exception as e:
+        print(f"⚠️ Gagal konfigurasi Gemini: {e}")
 
 def is_owner(user):
     if not user.username:
@@ -69,7 +75,7 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-private_key = GOOGLE_PRIVATE_KEY.replace("\\n", "\n")
+private_key = GOOGLE_PRIVATE_KEY.replace("\\n", "\n") if GOOGLE_PRIVATE_KEY else ""
 
 creds = Credentials.from_service_account_info({
     "type": "service_account",
@@ -98,25 +104,38 @@ def clean_text(text):
     return text[:80]
 
 async def ai_extract_caption(raw_caption):
-    """Menggunakan AI untuk mengekstraksi Kegiatan dan Lokasi saja"""
-    if not GEMINI_API_KEY or not raw_caption:
+    """
+    Menggunakan AI untuk mengekstraksi Kegiatan dan Lokasi saja.
+    Dilengkapi dengan retry logic agar bot tidak crash jika API error.
+    """
+    if not model_ai or not raw_caption:
         return raw_caption
     
     prompt = f"""
     Ekstrak informasi penting dari teks laporan proyek berikut.
     Ambil HANYA bagian 'Kegiatan' dan 'Lokasi' saja.
-    Format jawaban harus: "Kegiatan: [isi] | Lokasi: [isi]"
+    Format jawaban harus strictly: "Kegiatan: [isi] | Lokasi: [isi]"
     Jika informasi tidak ditemukan, tulis "-".
-    Jangan berikan kalimat pengantar, langsung ke format tersebut.
+    Jangan berikan kalimat pengantar atau penjelasan apa pun.
 
     Teks:
     {raw_caption}
     """
-    try:
-        response = model_ai.generate_content(prompt)
-        return response.text.strip()
-    except Exception:
-        return raw_caption # Balik ke teks asli jika AI gagal
+    
+    # Retry logic (Exponential Backoff)
+    delays = [1, 2, 4]
+    for delay in delays:
+        try:
+            # Menggunakan loop event-driven agar tidak memblokir bot
+            response = await asyncio.to_thread(model_ai.generate_content, prompt)
+            if response and response.text:
+                return response.text.strip()
+        except Exception as e:
+            print(f"🤖 AI Retry log: {e}")
+            await asyncio.sleep(delay)
+            
+    # Jika semua percobaan gagal, kembalikan teks asli (fallback aman)
+    return raw_caption
 
 def get_file_category(filename):
     """Kategorisasi jenis file berdasarkan ekstensi"""
@@ -162,8 +181,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # PROSES AI: Ekstraksi hanya Kegiatan & Lokasi
         if caption_raw.strip():
+            # Kita panggil AI di sini
             caption_final = await ai_extract_caption(caption_raw)
-            clean = clean_text(caption_raw[:30]) # Ambil dikit buat nama file
+            clean = clean_text(caption_raw[:30])
             base_name = f"{clean}_{timestamp}"
         else:
             base_name = f"foto_{timestamp}"
@@ -174,11 +194,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = f"/tmp/{base_name}.jpg"
         await file.download_to_drive(file_path)
         
+        # Upload ke Cloudinary
         result = cloudinary.uploader.upload(file_path, folder=folder_name, public_id=base_name, overwrite=True)
         url = result["secure_url"]
         
+        # Simpan ke Google Sheet
         save_photo_to_sheet(date, time, month, sender, caption_final, url)
         
+        # Kirim Respon
         if RESPONSE_MODE == "simple":
             await message.reply_text("✅ Foto berhasil diupload")
         else:
@@ -194,7 +217,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(file_path)
             
     except Exception as e:
-        await message.reply_text(f"❌ ERROR FOTO: {str(e)}")
+        print(f"Error Photo: {e}")
+        await message.reply_text(f"❌ TERJADI KENDALA: Pastikan format caption benar atau coba lagi nanti.")
 
 # ======================
 # 📄 HANDLE DOKUMEN
@@ -210,17 +234,22 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         timestamp = msg_time.strftime("%Y-%m-%d_%H-%M-%S")
         user = message.from_user
         sender = f"@{user.username}" if user.username else user.full_name
+        
         original_name = doc.file_name or f"file_{timestamp}"
         category, icon = get_file_category(original_name)
         folder_name = f"Dokumen_Proyek/{category}/{date}"
         safe_name = clean_text(original_name)
         public_id_final = f"{safe_name}_{timestamp}"
+        
         file = await context.bot.get_file(doc.file_id)
         temp_path = f"/tmp/{timestamp}_{original_name}"
         await file.download_to_drive(temp_path)
+        
         result = cloudinary.uploader.upload(temp_path, folder=folder_name, public_id=public_id_final, resource_type="raw")
         url = result["secure_url"]
+        
         save_doc_to_sheet(date, time, month, sender, original_name, category, url)
+        
         await message.reply_text(
             f"✅ **Berhasil diupload!**\n"
             f"{icon} `{original_name}` ({category})\n"
@@ -231,7 +260,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if os.path.exists(temp_path):
             os.remove(temp_path)
     except Exception as e:
-        await message.reply_text(f"❌ ERROR DOKUMEN: {str(e)}")
+        print(f"Error Doc: {e}")
+        await message.reply_text(f"❌ Gagal mengupload dokumen.")
 
 # ======================
 # 📋 COMMANDS
@@ -258,7 +288,6 @@ async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await delete_user_command(update, context)
 
 async def cekdokumen_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mencari dokumen berdasarkan pengirim via command /cekdokumen @username"""
     user_id = update.effective_user.id
     if not context.args:
         await update.message.reply_text("⚠️ Gunakan format: `/cekdokumen @username` atau `/cekdokumen Nama Pengirim`", parse_mode="Markdown")
@@ -269,10 +298,9 @@ async def cekdokumen_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await delete_user_command(update, context)
 
 async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Memberikan akses editor ke email yang ditentukan (Khusus Owner)"""
     user = update.effective_user
     if not is_owner(user):
-        await update.message.reply_text("❌ Akses ditolak. Hanya owner yang bisa memberi izin.")
+        await update.message.reply_text("❌ Akses ditolak.")
         await delete_user_command(update, context)
         return
 
@@ -288,12 +316,11 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     status_msg = await update.message.reply_text(f"⏳ Memproses akses untuk `{email}`...", parse_mode="Markdown")
-    
     try:
         sheet_instance.share(email, perm_type='user', role='writer', notify=True)
-        await status_msg.edit_text(f"✅ Berhasil! `{email}` sekarang telah menjadi **Editor** di Google Sheet.", parse_mode="Markdown")
+        await status_msg.edit_text(f"✅ Berhasil! `{email}` sekarang telah menjadi **Editor**.", parse_mode="Markdown")
     except Exception as e:
-        await status_msg.edit_text(f"❌ Gagal memberikan akses: {str(e)}")
+        await status_msg.edit_text(f"❌ Gagal: {str(e)}")
     
     await delete_user_command(update, context)
 
@@ -301,7 +328,6 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🎯 CALLBACK & VIEW HELPERS
 # ======================
 async def show_list_by_sender(update_or_query, context, sender_name, offset, owner_id, is_callback=True):
-    """Helper untuk menampilkan daftar file berdasarkan pengirim"""
     all_rows = sheet_doc.get_all_values()[1:]
     filtered = [r for r in all_rows if len(r) > 3 and r[3].lower() == sender_name.lower()]
     filtered.reverse()
@@ -388,32 +414,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Kembali", callback_data=f"menu_doc|{owner_id}")]]))
             return
 
-        text = "👥 **Pilih Pengirim:**\nAtau gunakan perintah `/cekdokumen @username`"
+        text = "👥 **Pilih Pengirim:**"
         kb = []
         for s in senders:
             kb.append([InlineKeyboardButton(f"👤 {s}", callback_data=f"lsender_{s}_0|{owner_id}")])
-        
         kb.append([InlineKeyboardButton("🔙 Kembali", callback_data=f"menu_doc|{owner_id}")])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
 
     elif action_data.startswith("lsender_"):
-        try:
-            _, rest = action_data.split("_", 1)
-            parts_val = rest.rsplit("_", 1)
-            s_name = parts_val[0]
-            offset = int(parts_val[1])
-            await show_list_by_sender(update, context, s_name, offset, owner_id, is_callback=True)
-        except Exception as e:
-            await query.message.reply_text(f"❌ Error navigasi pengirim: {str(e)}")
+        _, rest = action_data.split("_", 1)
+        parts_val = rest.rsplit("_", 1)
+        s_name = parts_val[0]
+        offset = int(parts_val[1])
+        await show_list_by_sender(update, context, s_name, offset, owner_id, is_callback=True)
 
     elif action_data.startswith("list_"):
         _, category, offset = action_data.split("_")
         offset = int(offset)
-        
         all_rows = sheet_doc.get_all_values()[1:] 
         filtered = [r for r in all_rows if len(r) > 5 and r[5] == category]
         filtered.reverse() 
-
         total = len(filtered)
         start = offset
         end = offset + ITEMS_PER_PAGE
@@ -429,7 +449,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text = f"📂 **DAFTAR DOKUMEN {category}**\n"
         text += f"_(Menampilkan {start+1}-{min(end, total)} dari {total} file)_\n\n"
-
         for i, row in enumerate(current_list, start=1):
             name = row[4] 
             link = row[6] 
@@ -441,11 +460,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             nav_row.append(InlineKeyboardButton("⬅️ Sebelumnya", callback_data=f"list_{category}_{end}|{owner_id}"))
         if offset > 0:
             nav_row.append(InlineKeyboardButton("➡️ Terbaru", callback_data=f"list_{category}_{max(0, offset-ITEMS_PER_PAGE)}|{owner_id}"))
-        
         if nav_row: buttons.append(nav_row)
         buttons.append([InlineKeyboardButton("🔙 Pilih Jenis Lain", callback_data=f"menu_doc|{owner_id}")])
         buttons.append([InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{owner_id}")])
-
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
 
     elif action_data == "back_main":
@@ -462,18 +479,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         today = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d-%m-%Y")
         rows = sheet_photo.get_all_values()
         count = sum(1 for r in rows if r and r[0] == today)
-        await query.edit_message_text(f"📊 Hari ini ada {count} foto diupload.\n\n🔙 Klik /info untuk menu lain.",
-                                     reply_markup=InlineKeyboardMarkup([
-                                         [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")],
-                                         [InlineKeyboardButton("❌ Tutup", callback_data=f"close|{owner_id}")]
-                                     ]))
+        await query.edit_message_text(f"📊 Hari ini ada {count} foto diupload.",
+                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")]]))
 
     elif action_data == "dev":
-        await query.edit_message_text(f"👨‍💻 Developer: {OWNER_USERNAME}\n\n🔙 Klik /info untuk menu lain.",
-                                     reply_markup=InlineKeyboardMarkup([
-                                         [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")],
-                                         [InlineKeyboardButton("❌ Tutup", callback_data=f"close|{owner_id}")]
-                                     ]))
+        await query.edit_message_text(f"👨‍💻 Developer: {OWNER_USERNAME}",
+                                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")]]))
 
 # ======================
 # 💬 SARAN & MODE
@@ -484,8 +495,7 @@ async def saran_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text:
         await update.message.reply_text("❗ Tulis saran setelah /saran")
         return
-    sender = f"@{user.username}" if user.username else user.full_name
-    await update.message.reply_text("✅ Saran terkirim ke log!")
+    await update.message.reply_text("✅ Saran terkirim!")
     await delete_user_command(update, context)
 
 async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
