@@ -213,6 +213,18 @@ async def sheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await delete_user_command(update, context)
 
+async def cekdokumen_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mencari dokumen berdasarkan pengirim via command /cekdokumen @username"""
+    user_id = update.effective_user.id
+    if not context.args:
+        await update.message.reply_text("⚠️ Gunakan format: `/cekdokumen @username` atau `/cekdokumen Nama Pengirim`", parse_mode="Markdown")
+        return
+
+    target_sender = " ".join(context.args).strip()
+    # Panggil helper untuk mengambil data
+    await show_list_by_sender(update, context, target_sender, 0, user_id, is_callback=False)
+    await delete_user_command(update, context)
+
 async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Memberikan akses editor ke email yang ditentukan (Khusus Owner)"""
     user = update.effective_user
@@ -243,43 +255,123 @@ async def akses_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await delete_user_command(update, context)
 
 # ======================
-# 🎯 CALLBACK HANDLER
+# 🎯 CALLBACK & VIEW HELPERS
 # ======================
+async def show_list_by_sender(update_or_query, context, sender_name, offset, owner_id, is_callback=True):
+    """Helper untuk menampilkan daftar file berdasarkan pengirim"""
+    all_rows = sheet_doc.get_all_values()[1:]
+    # Filter berdasarkan kolom sender (index 3)
+    filtered = [r for r in all_rows if len(r) > 3 and r[3].lower() == sender_name.lower()]
+    filtered.reverse()
+
+    total = len(filtered)
+    start = offset
+    end = offset + ITEMS_PER_PAGE
+    current_list = filtered[start:end]
+
+    msg_obj = update_or_query.callback_query if is_callback else update_or_query.message
+
+    if not current_list:
+        text = f"📭 Pengirim `{sender_name}` belum pernah mengunggah dokumen."
+        kb = [[InlineKeyboardButton("❌ Tutup", callback_data=f"close|{owner_id}")]]
+        if is_callback:
+            await msg_obj.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        else:
+            await msg_obj.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    text = f"👤 **DOKUMEN DARI: {sender_name}**\n"
+    text += f"_(Menampilkan {start+1}-{min(end, total)} dari {total} file)_\n\n"
+
+    for i, row in enumerate(current_list, start=1):
+        name = row[4]
+        cat = row[5]
+        link = row[6]
+        text += f"{i}. **{name}** ({cat})\n🔗 [Buka Dokumen]({link})\n\n"
+
+    buttons = []
+    nav_row = []
+    # Callback data format: listsender_NamaPengirim_Offset
+    # Kita bersihkan sender_name dari karakter khusus untuk callback_data jika perlu, 
+    # namun telegram mendukung string selama total callback data < 64 bytes.
+    if end < total:
+        nav_row.append(InlineKeyboardButton("⬅️ Sebelumnya", callback_data=f"lsender_{sender_name}_{end}|{owner_id}"))
+    if offset > 0:
+        nav_row.append(InlineKeyboardButton("➡️ Terbaru", callback_data=f"lsender_{sender_name}_{max(0, offset-ITEMS_PER_PAGE)}|{owner_id}"))
+    
+    if nav_row: buttons.append(nav_row)
+    buttons.append([InlineKeyboardButton("🔙 Kembali ke Menu", callback_data=f"back_main|{owner_id}")])
+    buttons.append([InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{owner_id}")])
+
+    if is_callback:
+        await msg_obj.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+    else:
+        await msg_obj.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     raw_data = query.data
     parts = raw_data.split("|")
     
-    action = parts[0]
+    action_data = parts[0]
     owner_id = int(parts[1]) if len(parts) > 1 else None
     current_user_id = query.from_user.id
 
-    # Proteksi Tombol
     if owner_id and current_user_id != owner_id:
         await query.answer("⚠️ Menu ini hanya untuk pengguna yang memanggilnya!", show_alert=True)
         return
 
-    # Aksi Tutup Menu
-    if action == "close":
+    if action_data == "close":
         await query.answer("Menu ditutup")
         await query.delete_message()
         return
 
     await query.answer()
 
-    if action == "menu_doc":
+    if action_data == "menu_doc":
         kb = [
             [InlineKeyboardButton("📕 PDF", callback_data=f"list_PDF_0|{owner_id}")],
             [InlineKeyboardButton("📘 WORD", callback_data=f"list_WORD_0|{owner_id}")],
             [InlineKeyboardButton("📗 EXCEL", callback_data=f"list_EXCEL_0|{owner_id}")],
             [InlineKeyboardButton("📙 PPT", callback_data=f"list_PPT_0|{owner_id}")],
+            [InlineKeyboardButton("👤 Cari Pengirim", callback_data=f"search_sender|{owner_id}")],
             [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")],
             [InlineKeyboardButton("❌ Tutup Menu", callback_data=f"close|{owner_id}")]
         ]
-        await query.edit_message_text("Pilih jenis dokumen yang ingin dicari:", reply_markup=InlineKeyboardMarkup(kb))
+        await query.edit_message_text("Pilih metode pencarian dokumen:", reply_markup=InlineKeyboardMarkup(kb))
 
-    elif action.startswith("list_"):
-        _, category, offset = action.split("_")
+    elif action_data == "search_sender":
+        # Ambil daftar unik pengirim dari sheet
+        all_rows = sheet_doc.get_all_values()[1:]
+        senders = sorted(list(set(row[3] for row in all_rows if len(row) > 3 and row[3])))
+        
+        if not senders:
+            await query.edit_message_text("📭 Belum ada data pengirim.", 
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Kembali", callback_data=f"menu_doc|{owner_id}")]]))
+            return
+
+        text = "👥 **Pilih Pengirim:**\nAtau gunakan perintah `/cekdokumen @username`"
+        kb = []
+        for s in senders:
+            # Batasi panjang string agar tidak error di callback_data
+            kb.append([InlineKeyboardButton(f"👤 {s}", callback_data=f"lsender_{s}_0|{owner_id}")])
+        
+        kb.append([InlineKeyboardButton("🔙 Kembali", callback_data=f"menu_doc|{owner_id}")])
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
+
+    elif action_data.startswith("lsender_"):
+        # Format: lsender_Nama Pengirim_Offset
+        try:
+            _, rest = action_data.split("_", 1)
+            parts_val = rest.rsplit("_", 1)
+            s_name = parts_val[0]
+            offset = int(parts_val[1])
+            await show_list_by_sender(update, context, s_name, offset, owner_id, is_callback=True)
+        except Exception as e:
+            await query.message.reply_text(f"❌ Error navigasi pengirim: {str(e)}")
+
+    elif action_data.startswith("list_"):
+        _, category, offset = action_data.split("_")
         offset = int(offset)
         
         all_rows = sheet_doc.get_all_values()[1:] 
@@ -320,7 +412,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons), disable_web_page_preview=True)
 
-    elif action == "back_main":
+    elif action_data == "back_main":
         keyboard = [
             [InlineKeyboardButton("📄 Cek Dokumen", callback_data=f"menu_doc|{owner_id}")],
             [InlineKeyboardButton("📊 Statistik Foto", callback_data=f"jumlah|{owner_id}")],
@@ -330,7 +422,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text("📋 Menu Bot:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    elif action == "jumlah":
+    elif action_data == "jumlah":
         today = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%d-%m-%Y")
         rows = sheet_photo.get_all_values()
         count = sum(1 for r in rows if r and r[0] == today)
@@ -340,7 +432,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                          [InlineKeyboardButton("❌ Tutup", callback_data=f"close|{owner_id}")]
                                      ]))
 
-    elif action == "dev":
+    elif action_data == "dev":
         await query.edit_message_text(f"👨‍💻 Developer: {OWNER_USERNAME}\n\n🔙 Klik /info untuk menu lain.",
                                      reply_markup=InlineKeyboardMarkup([
                                          [InlineKeyboardButton("🔙 Kembali", callback_data=f"back_main|{owner_id}")],
@@ -386,6 +478,7 @@ def main():
     app.add_handler(CommandHandler("mode", mode_command))
     app.add_handler(CommandHandler("sheet", sheet_command))
     app.add_handler(CommandHandler("akses", akses_command))
+    app.add_handler(CommandHandler("cekdokumen", cekdokumen_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     print("🤖 Bot Aktif (NPI Project)...")
     app.run_polling()
